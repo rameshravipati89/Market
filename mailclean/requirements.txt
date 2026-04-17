@@ -1,0 +1,9 @@
+motor==3.4.0
+pymongo==4.7.2
+trafilatura==1.9.0
+beautifulsoup4==4.12.3
+lxml>=4.9.4,<5.2.0
+spacy==3.7.4
+skillner==1.0.3
+langdetect==1.0.9
+python-dotenv==1.0.1

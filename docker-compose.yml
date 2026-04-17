@@ -1,0 +1,176 @@
+# =============================================================================
+#  docker-compose.yml — Unified build for all multilevel-marketing services
+#
+#  Services:
+#    mongodb            — shared MongoDB 7 instance
+#    mail_injector      — IMAP fetcher / mail injector
+#    mailclean          — NLP pipeline processor
+#    localadmin_api     — Local admin FastAPI backend
+#    localadmin_frontend— Local admin React/nginx frontend  (port 3000)
+#    recruiter_backend  — RecruitIQ Pro FastAPI backend
+#    recruiter_frontend — RecruitIQ Pro nginx frontend      (port 3001)
+#    cloudflare_tunnel  — Public URL tunnel for RecruitIQ Pro (free, no account)
+#
+#  Usage:
+#    podman compose up -d --build       # start everything
+#    podman compose down                # stop everything
+#    podman compose up -d --build <svc> # rebuild one service
+#
+#  Get the public URL after start:
+#    podman logs cloudflare_tunnel 2>&1 | grep trycloudflare
+# =============================================================================
+
+version: "3.9"
+
+# ---------------------------------------------------------------------------
+# Shared environment variables (referenced with <<: *mongo-env below)
+# ---------------------------------------------------------------------------
+x-mongo-env: &mongo-env
+  MONGO_URI: mongodb://admin:admin123@mongodb:27017/maildb?authSource=admin
+  MONGO_DB:  maildb
+
+services:
+
+  # ── MongoDB ──────────────────────────────────────────────────────────────
+  mongodb:
+    image: mongo:7.0
+    container_name: mongodb_instance
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: admin123
+      MONGO_INITDB_DATABASE: maildb
+    volumes:
+      - mongo_data:/data/db
+      - ./mongodb/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "27017:27017"
+    networks:
+      - mlnet
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ping:1})"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  # ── Mail Injector ─────────────────────────────────────────────────────────
+  mail_injector:
+    build:
+      context: ./blushostmailprocessing/mail_injector
+    container_name: bluehost_injector
+    restart: unless-stopped
+    environment:
+      <<: *mongo-env
+      IMAP_BATCH_SIZE: "200"
+      BACKFILL_DAYS:   "7"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - mlnet
+
+  # ── Mailclean Pipeline ────────────────────────────────────────────────────
+  mailclean:
+    build:
+      context: ./mailclean
+    container_name: mailclean_pipeline
+    restart: unless-stopped
+    environment:
+      <<: *mongo-env
+      BATCH_SIZE:          "100"
+      LOOP_SLEEP_SECONDS:  "120"
+      SPACY_MODEL:         "en_core_web_lg"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - mlnet
+
+  # ── Local Admin — Backend ─────────────────────────────────────────────────
+  localadmin_api:
+    build:
+      context: ./local-admin/backend
+    container_name: localadmin_api
+    restart: unless-stopped
+    environment:
+      <<: *mongo-env
+      PORT:             "8000"
+      ANTHROPIC_API_KEY: ""
+      GROQ_API_KEY:      ""
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - mlnet
+      - adminnet
+
+  # ── Local Admin — Frontend ────────────────────────────────────────────────
+  localadmin_frontend:
+    build:
+      context: ./local-admin/frontend
+    container_name: localadmin_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - localadmin_api
+    networks:
+      - adminnet
+
+  # ── RecruitIQ Pro — Backend ───────────────────────────────────────────────
+  recruiter_backend:
+    build:
+      context: ./recruiter-pro/backend
+    container_name: recruiter_backend
+    restart: unless-stopped
+    environment:
+      <<: *mongo-env
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - mlnet
+      - recruiter_net
+
+  # ── RecruitIQ Pro — Frontend ──────────────────────────────────────────────
+  recruiter_frontend:
+    build:
+      context: ./recruiter-pro/frontend
+    container_name: recruiter_frontend
+    restart: unless-stopped
+    ports:
+      - "3001:80"
+    depends_on:
+      - recruiter_backend
+    networks:
+      - recruiter_net
+
+  # ── Cloudflare Tunnel — Public URL for RecruitIQ Pro ─────────────────────
+  cloudflare_tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflare_tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --url http://recruiter_frontend:80
+    depends_on:
+      - recruiter_frontend
+    networks:
+      - recruiter_net
+
+# ---------------------------------------------------------------------------
+# Volumes
+# ---------------------------------------------------------------------------
+volumes:
+  mongo_data:
+
+# ---------------------------------------------------------------------------
+# Networks
+# ---------------------------------------------------------------------------
+networks:
+  mlnet:
+    name: mlnet
+    external: true
+  adminnet:
+    driver: bridge
+  recruiter_net:
+    driver: bridge

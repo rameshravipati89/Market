@@ -1,0 +1,14 @@
+version: "3.9"
+
+services:
+  mailclean:
+    build: .
+    container_name: mailclean_pipeline
+    restart: unless-stopped
+    env_file: .env
+    networks:
+      - mlnet
+
+networks:
+  mlnet:
+    external: true

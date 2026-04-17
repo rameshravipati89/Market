@@ -1,0 +1,28 @@
+version: "3.9"
+
+services:
+  backend:
+    build: ./backend
+    container_name: recruiter_backend
+    restart: unless-stopped
+    env_file: .env
+    networks:
+      - recruiter_net
+      - mlnet
+
+  frontend:
+    build: ./frontend
+    container_name: recruiter_frontend
+    restart: unless-stopped
+    ports:
+      - "3001:80"
+    depends_on:
+      - backend
+    networks:
+      - recruiter_net
+
+networks:
+  recruiter_net:
+    driver: bridge
+  mlnet:
+    external: true

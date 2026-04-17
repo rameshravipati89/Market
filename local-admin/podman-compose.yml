@@ -1,0 +1,28 @@
+version: "3.9"
+
+services:
+  backend:
+    build: ./backend
+    container_name: localadmin_api
+    restart: unless-stopped
+    env_file: .env
+    networks:
+      - adminnet
+      - mlnet
+
+  frontend:
+    build: ./frontend
+    container_name: localadmin_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - adminnet
+
+networks:
+  adminnet:
+    driver: bridge
+  mlnet:
+    external: true

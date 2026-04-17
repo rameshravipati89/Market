@@ -1,0 +1,14 @@
+version: "3.9"
+
+services:
+  mail_injector:
+    build: ./mail_injector
+    container_name: bluehost_injector
+    restart: unless-stopped
+    env_file: .env
+    networks:
+      - mlnet
+
+networks:
+  mlnet:
+    external: true

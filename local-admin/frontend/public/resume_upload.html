@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Resume Upload — Local Admin</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+a{color:#60a5fa;text-decoration:none}
+
+/* Layout */
+.layout{display:flex;min-height:100vh}
+.sidebar{width:220px;background:#1e293b;padding:24px 0;flex-shrink:0;border-right:1px solid #334155}
+.sidebar h2{padding:0 20px 20px;font-size:15px;color:#94a3b8;text-transform:uppercase;letter-spacing:.08em}
+.nav-item{display:flex;align-items:center;gap:10px;padding:10px 20px;cursor:pointer;color:#94a3b8;font-size:14px;border-left:3px solid transparent;transition:.15s}
+.nav-item:hover,.nav-item.active{color:#e2e8f0;background:#263348;border-left-color:#3b82f6}
+.nav-item svg{width:16px;height:16px;flex-shrink:0}
+.main{flex:1;overflow-y:auto}
+.header{background:#1e293b;border-bottom:1px solid #334155;padding:16px 28px;display:flex;align-items:center;justify-content:space-between}
+.header h1{font-size:18px;font-weight:600}
+.back-link{font-size:13px;color:#94a3b8}
+.back-link:hover{color:#e2e8f0}
+.content{padding:28px}
+
+/* Pages */
+.page{display:none}
+.page.active{display:block}
+
+/* Cards */
+.card{background:#1e293b;border:1px solid #334155;border-radius:10px;padding:22px}
+.card-title{font-size:15px;font-weight:600;margin-bottom:16px;color:#f1f5f9}
+
+/* Stats row */
+.stats-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;margin-bottom:24px}
+.stat-card{background:#1e293b;border:1px solid #334155;border-radius:8px;padding:16px;text-align:center}
+.stat-val{font-size:28px;font-weight:700;color:#3b82f6}
+.stat-label{font-size:12px;color:#64748b;margin-top:4px}
+
+/* Drop zone */
+.drop-zone{border:2px dashed #334155;border-radius:10px;padding:40px 20px;text-align:center;cursor:pointer;transition:.2s;position:relative}
+.drop-zone:hover,.drop-zone.drag-over{border-color:#3b82f6;background:#1e3a5f22}
+.drop-zone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer}
+.drop-icon{font-size:40px;margin-bottom:12px}
+.drop-zone p{color:#94a3b8;font-size:14px}
+.drop-zone .hint{font-size:12px;color:#475569;margin-top:6px}
+
+/* Upload queue */
+.queue{margin-top:20px;display:flex;flex-direction:column;gap:8px}
+.queue-item{background:#263348;border-radius:8px;padding:12px 16px}
+.queue-item-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.queue-filename{font-size:13px;font-weight:500;color:#e2e8f0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:70%}
+.queue-status{font-size:12px;padding:2px 8px;border-radius:20px}
+.status-pending{background:#1e3a5f;color:#60a5fa}
+.status-uploading{background:#1c3a2e;color:#34d399}
+.status-done{background:#1e3a5f;color:#34d399}
+.status-error{background:#3b1a1a;color:#f87171}
+.status-skipped{background:#2a2a1a;color:#fbbf24}
+.progress-bar-wrap{height:4px;background:#334155;border-radius:2px;overflow:hidden}
+.progress-bar{height:100%;background:#3b82f6;border-radius:2px;transition:width .3s}
+
+/* Table */
+.table-controls{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+.search-box{flex:1;min-width:200px;background:#263348;border:1px solid #334155;border-radius:6px;padding:8px 12px;color:#e2e8f0;font-size:14px;outline:none}
+.search-box:focus{border-color:#3b82f6}
+.select-filter{background:#263348;border:1px solid #334155;border-radius:6px;padding:8px 10px;color:#e2e8f0;font-size:13px;outline:none;cursor:pointer}
+.btn{padding:8px 16px;border-radius:6px;border:none;cursor:pointer;font-size:13px;font-weight:500;transition:.15s}
+.btn-primary{background:#3b82f6;color:#fff}
+.btn-primary:hover{background:#2563eb}
+.btn-danger{background:#ef4444;color:#fff}
+.btn-danger:hover{background:#dc2626}
+.btn-outline{background:transparent;border:1px solid #334155;color:#94a3b8}
+.btn-outline:hover{border-color:#3b82f6;color:#3b82f6}
+.btn-sm{padding:5px 10px;font-size:12px}
+
+table{width:100%;border-collapse:collapse;font-size:13px}
+thead th{background:#263348;padding:10px 12px;text-align:left;color:#94a3b8;font-weight:500;white-space:nowrap}
+tbody tr{border-top:1px solid #1e293b;transition:.1s}
+tbody tr:hover{background:#1e2d40}
+tbody td{padding:10px 12px;color:#cbd5e1;vertical-align:middle}
+.badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap}
+.badge-visa{background:#1e3a5f;color:#60a5fa}
+.badge-avail-immediate{background:#1c3a2e;color:#34d399}
+.badge-avail-other{background:#263348;color:#94a3b8}
+.skill-tag{display:inline-block;background:#263348;border:1px solid #334155;border-radius:4px;padding:1px 6px;font-size:11px;color:#94a3b8;margin:1px}
+
+/* Pagination */
+.pagination{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:16px;font-size:13px;color:#64748b}
+.page-btn{background:#263348;border:1px solid #334155;color:#94a3b8;padding:5px 10px;border-radius:5px;cursor:pointer;font-size:12px}
+.page-btn:hover:not(:disabled){border-color:#3b82f6;color:#3b82f6}
+.page-btn:disabled{opacity:0.4;cursor:default}
+.page-info{color:#64748b}
+
+/* Charts */
+.charts-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.chart-wrap{position:relative;height:280px}
+@media(max-width:700px){.charts-grid{grid-template-columns:1fr}}
+
+/* Modal */
+.modal-backdrop{display:none;position:fixed;inset:0;background:#00000080;z-index:100;overflow-y:auto;padding:40px 20px}
+.modal-backdrop.open{display:flex;align-items:flex-start;justify-content:center}
+.modal{background:#1e293b;border:1px solid #334155;border-radius:12px;width:100%;max-width:700px;max-height:90vh;overflow-y:auto}
+.modal-header{padding:18px 22px;border-bottom:1px solid #334155;display:flex;align-items:center;justify-content:space-between}
+.modal-header h3{font-size:16px;font-weight:600}
+.modal-close{background:none;border:none;color:#64748b;cursor:pointer;font-size:20px;line-height:1}
+.modal-close:hover{color:#e2e8f0}
+.modal-body{padding:20px 22px}
+.detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.detail-item label{font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:2px}
+.detail-item span{font-size:14px;color:#e2e8f0}
+.detail-item.full{grid-column:1/-1}
+.skills-list{display:flex;flex-wrap:wrap;gap:4px}
+.modal-footer{padding:14px 22px;border-top:1px solid #334155;display:flex;justify-content:flex-end;gap:10px}
+
+/* Edit form */
+.form-group{margin-bottom:14px}
+.form-group label{display:block;font-size:12px;color:#94a3b8;margin-bottom:5px}
+.form-group input,.form-group select{width:100%;background:#263348;border:1px solid #334155;border-radius:6px;padding:8px 12px;color:#e2e8f0;font-size:14px;outline:none}
+.form-group input:focus,.form-group select:focus{border-color:#3b82f6}
+
+/* Toast */
+#toast-container{position:fixed;bottom:24px;right:24px;z-index:200;display:flex;flex-direction:column;gap:8px}
+.toast{padding:12px 18px;border-radius:8px;font-size:13px;font-weight:500;display:flex;align-items:center;gap:10px;box-shadow:0 4px 20px #00000060;animation:slideUp .25s ease}
+.toast-success{background:#166534;color:#bbf7d0;border:1px solid #15803d}
+.toast-error{background:#7f1d1d;color:#fecaca;border:1px solid #b91c1c}
+.toast-info{background:#1e3a5f;color:#bfdbfe;border:1px solid #2563eb}
+@keyframes slideUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+
+/* Empty state */
+.empty-state{text-align:center;padding:60px 20px;color:#475569}
+.empty-state svg{width:48px;height:48px;margin:0 auto 16px;opacity:.4}
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <h2>Local Admin</h2>
+    <div class="nav-item" onclick="window.location.href='/'">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+      Mail Events
+    </div>
+    <div class="nav-item active" onclick="showPage('upload')">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+      Upload Resumes
+    </div>
+    <div class="nav-item" onclick="showPage('candidates')">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+      Candidates
+    </div>
+    <div class="nav-item" onclick="showPage('stats')">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+      Stats
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="main">
+    <div class="header">
+      <h1 id="page-title">Upload Resumes</h1>
+      <a class="back-link" href="/">← Back to Mail Events</a>
+    </div>
+    <div class="content">
+
+      <!-- ── Upload page ── -->
+      <div id="page-upload" class="page active">
+        <div class="stats-row" id="upload-stats">
+          <div class="stat-card"><div class="stat-val" id="stat-total">—</div><div class="stat-label">Total Candidates</div></div>
+          <div class="stat-card"><div class="stat-val" id="stat-today">—</div><div class="stat-label">Uploaded Today</div></div>
+          <div class="stat-card"><div class="stat-val" id="stat-usc">—</div><div class="stat-label">USC / GC</div></div>
+          <div class="stat-card"><div class="stat-val" id="stat-h1b">—</div><div class="stat-label">H1B</div></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Drop DOCX files to parse & save</div>
+          <div class="drop-zone" id="drop-zone">
+            <input type="file" id="file-input" accept=".docx" multiple/>
+            <div class="drop-icon">📄</div>
+            <p>Drag & drop <strong>.docx</strong> resume files here</p>
+            <p class="hint">or click to browse — multiple files supported</p>
+          </div>
+          <div class="queue" id="upload-queue"></div>
+        </div>
+      </div>
+
+      <!-- ── Candidates page ── -->
+      <div id="page-candidates" class="page">
+        <div class="card">
+          <div class="table-controls">
+            <input class="search-box" id="search-input" placeholder="Search by name, skill, email…" oninput="debouncedSearch()"/>
+            <select class="select-filter" id="visa-filter" onchange="loadCandidates(1)">
+              <option value="">All Visas</option>
+              <option value="USC">USC</option>
+              <option value="GC">GC</option>
+              <option value="H1B">H1B</option>
+              <option value="OPT">OPT</option>
+              <option value="CPT">CPT</option>
+              <option value="TN">TN</option>
+              <option value="EAD">EAD</option>
+              <option value="Unknown">Unknown</option>
+            </select>
+            <select class="select-filter" id="avail-filter" onchange="loadCandidates(1)">
+              <option value="">All Availability</option>
+              <option value="Immediate">Immediate</option>
+              <option value="2 weeks">2 Weeks</option>
+              <option value="1 month">1 Month</option>
+              <option value="Unknown">Unknown</option>
+            </select>
+            <button class="btn btn-outline" onclick="loadCandidates(1)">Refresh</button>
+          </div>
+
+          <div id="candidates-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Title</th>
+                  <th>Skills</th>
+                  <th>Visa</th>
+                  <th>Rate</th>
+                  <th>Availability</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="candidates-tbody"></tbody>
+            </table>
+            <div id="empty-candidates" class="empty-state" style="display:none">
+              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+              <p>No candidates found</p>
+            </div>
+          </div>
+
+          <div class="pagination">
+            <span class="page-info" id="page-info"></span>
+            <button class="page-btn" id="btn-prev" onclick="changePage(-1)" disabled>‹ Prev</button>
+            <button class="page-btn" id="btn-next" onclick="changePage(1)" disabled>Next ›</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Stats page ── -->
+      <div id="page-stats" class="page">
+        <div class="stats-row">
+          <div class="stat-card"><div class="stat-val" id="stats-total">—</div><div class="stat-label">Total Candidates</div></div>
+        </div>
+        <div class="charts-grid">
+          <div class="card">
+            <div class="card-title">Visa Breakdown</div>
+            <div class="chart-wrap"><canvas id="visa-chart"></canvas></div>
+          </div>
+          <div class="card">
+            <div class="card-title">Top 15 Skills</div>
+            <div class="chart-wrap"><canvas id="skills-chart"></canvas></div>
+          </div>
+          <div class="card" style="grid-column:1/-1">
+            <div class="card-title">Availability</div>
+            <div class="chart-wrap" style="height:180px"><canvas id="avail-chart"></canvas></div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /content -->
+  </div><!-- /main -->
+</div><!-- /layout -->
+
+<!-- Detail Modal -->
+<div class="modal-backdrop" id="detail-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="detail-name">Candidate</h3>
+      <button class="modal-close" onclick="closeModal('detail-modal')">✕</button>
+    </div>
+    <div class="modal-body" id="detail-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-outline btn-sm" onclick="openEditFromDetail()">Edit</button>
+      <button class="btn btn-danger btn-sm" onclick="deleteFromDetail()">Delete</button>
+      <button class="btn btn-primary btn-sm" onclick="closeModal('detail-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Modal -->
+<div class="modal-backdrop" id="edit-modal">
+  <div class="modal" style="max-width:440px">
+    <div class="modal-header">
+      <h3>Edit Candidate</h3>
+      <button class="modal-close" onclick="closeModal('edit-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="edit-id"/>
+      <div class="form-group">
+        <label>Expected Rate</label>
+        <input type="text" id="edit-rate" placeholder="e.g. $75/hr"/>
+      </div>
+      <div class="form-group">
+        <label>Visa Status</label>
+        <select id="edit-visa">
+          <option>H1B</option><option>GC</option><option>USC</option>
+          <option>OPT</option><option>CPT</option><option>TN</option>
+          <option>EAD</option><option>Unknown</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Availability</label>
+        <select id="edit-avail">
+          <option>Immediate</option><option>2 weeks</option>
+          <option>1 month</option><option>Unknown</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Current Title</label>
+        <input type="text" id="edit-title" placeholder="e.g. Senior Java Developer"/>
+      </div>
+      <div class="form-group">
+        <label>Location</label>
+        <input type="text" id="edit-location" placeholder="e.g. Dallas, TX"/>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline btn-sm" onclick="closeModal('edit-modal')">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="saveEdit()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast container -->
+<div id="toast-container"></div>
+
+<script>
+const API = '/api/resume';
+let currentPage = 1;
+let totalPages = 1;
+let currentDetailId = null;
+let visaChart = null, skillsChart = null, availChart = null;
+let searchTimer = null;
+
+// ── Navigation ──────────────────────────────────────────────────────────────
+
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  const titles = {upload: 'Upload Resumes', candidates: 'Candidates', stats: 'Stats'};
+  document.getElementById('page-title').textContent = titles[name] || name;
+  event?.currentTarget?.classList.add('active');
+  if (name === 'candidates') loadCandidates(1);
+  if (name === 'stats') loadStats();
+  if (name === 'upload') loadUploadStats();
+}
+
+// ── Toast ────────────────────────────────────────────────────────────────────
+
+function toast(msg, type = 'info') {
+  const c = document.getElementById('toast-container');
+  const t = document.createElement('div');
+  t.className = `toast toast-${type}`;
+  t.textContent = msg;
+  c.appendChild(t);
+  setTimeout(() => t.remove(), 4000);
+}
+
+// ── Upload stats ─────────────────────────────────────────────────────────────
+
+async function loadUploadStats() {
+  try {
+    const r = await fetch(`${API}/stats`);
+    if (!r.ok) return;
+    const d = await r.json();
+    document.getElementById('stat-total').textContent = d.total_candidates ?? 0;
+    const today = new Date().toISOString().slice(0, 10);
+    // Approximate today count from candidates list
+    document.getElementById('stat-today').textContent = '—';
+    let uscGc = 0, h1b = 0;
+    (d.visa_breakdown || []).forEach(v => {
+      if (v.visa === 'USC' || v.visa === 'GC') uscGc += v.count;
+      if (v.visa === 'H1B') h1b += v.count;
+    });
+    document.getElementById('stat-usc').textContent = uscGc;
+    document.getElementById('stat-h1b').textContent = h1b;
+  } catch (e) {}
+}
+
+// ── Drag & Drop Upload ───────────────────────────────────────────────────────
+
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+const queueEl  = document.getElementById('upload-queue');
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  handleFiles([...e.dataTransfer.files]);
+});
+fileInput.addEventListener('change', () => {
+  handleFiles([...fileInput.files]);
+  fileInput.value = '';
+});
+
+function handleFiles(files) {
+  files = files.filter(f => f.name.toLowerCase().endsWith('.docx'));
+  if (!files.length) { toast('Only .docx files are supported', 'error'); return; }
+  files.forEach(uploadFile);
+}
+
+function uploadFile(file) {
+  const itemId = 'q-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+  const item = document.createElement('div');
+  item.className = 'queue-item';
+  item.id = itemId;
+  item.innerHTML = `
+    <div class="queue-item-header">
+      <span class="queue-filename" title="${file.name}">${file.name}</span>
+      <span class="queue-status status-pending" id="${itemId}-status">Pending</span>
+    </div>
+    <div class="progress-bar-wrap"><div class="progress-bar" id="${itemId}-bar" style="width:0%"></div></div>
+  `;
+  queueEl.appendChild(item);
+  setQueueStatus(itemId, 'uploading', 'Uploading…', 30);
+
+  const fd = new FormData();
+  fd.append('file', file);
+
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', `${API}/upload`);
+  xhr.upload.onprogress = e => {
+    if (e.lengthComputable) {
+      document.getElementById(itemId + '-bar').style.width = Math.round(e.loaded / e.total * 80) + '%';
+    }
+  };
+  xhr.onload = () => {
+    if (xhr.status === 200) {
+      const d = JSON.parse(xhr.responseText);
+      setQueueStatus(itemId, 'done', `✓ ${d.candidate?.name || 'Saved'} [${d.parser_used}]`, 100);
+      toast(`Saved: ${d.candidate?.name || file.name}`, 'success');
+      loadUploadStats();
+    } else {
+      let msg = 'Error';
+      try { msg = JSON.parse(xhr.responseText).detail || msg; } catch(e) {}
+      setQueueStatus(itemId, 'error', `✗ ${msg}`, 0);
+      toast(`Failed: ${file.name} — ${msg}`, 'error');
+    }
+  };
+  xhr.onerror = () => {
+    setQueueStatus(itemId, 'error', '✗ Network error', 0);
+    toast(`Network error: ${file.name}`, 'error');
+  };
+  xhr.send(fd);
+}
+
+function setQueueStatus(id, cls, text, progress) {
+  const statusEl = document.getElementById(id + '-status');
+  const barEl    = document.getElementById(id + '-bar');
+  if (statusEl) {
+    statusEl.className = `queue-status status-${cls}`;
+    statusEl.textContent = text;
+  }
+  if (barEl) barEl.style.width = progress + '%';
+}
+
+// ── Candidates Table ─────────────────────────────────────────────────────────
+
+function debouncedSearch() {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => loadCandidates(1), 400);
+}
+
+async function loadCandidates(page) {
+  currentPage = page;
+  const search = document.getElementById('search-input').value.trim();
+  const visa   = document.getElementById('visa-filter').value;
+  const avail  = document.getElementById('avail-filter').value;
+  const params = new URLSearchParams({ page, limit: 20 });
+  if (search) params.set('search', search);
+  if (visa)   params.set('visa', visa);
+  if (avail)  params.set('availability', avail);
+
+  try {
+    const r = await fetch(`${API}/candidates?${params}`);
+    const d = await r.json();
+    renderTable(d.candidates || []);
+    const total = d.total || 0;
+    totalPages  = Math.ceil(total / 20) || 1;
+    document.getElementById('page-info').textContent =
+      `${total} candidates — page ${currentPage} of ${totalPages}`;
+    document.getElementById('btn-prev').disabled = currentPage <= 1;
+    document.getElementById('btn-next').disabled = currentPage >= totalPages;
+  } catch (e) {
+    toast('Failed to load candidates', 'error');
+  }
+}
+
+function renderTable(candidates) {
+  const tbody = document.getElementById('candidates-tbody');
+  const empty = document.getElementById('empty-candidates');
+  if (!candidates.length) {
+    tbody.innerHTML = '';
+    empty.style.display = '';
+    return;
+  }
+  empty.style.display = 'none';
+  tbody.innerHTML = candidates.map(c => {
+    const skills = (c.primary_skills || c.skills || []).slice(0, 4)
+      .map(s => `<span class="skill-tag">${esc(s)}</span>`).join('');
+    const availCls = c.availability === 'Immediate' ? 'badge-avail-immediate' : 'badge-avail-other';
+    return `<tr>
+      <td><strong style="color:#e2e8f0">${esc(c.name || '—')}</strong><br>
+          <span style="font-size:11px;color:#64748b">${esc(c.email || '')}</span></td>
+      <td style="color:#94a3b8">${esc(c.current_title || '—')}</td>
+      <td>${skills || '<span style="color:#475569">—</span>'}</td>
+      <td><span class="badge badge-visa">${esc(c.visa_status || '—')}</span></td>
+      <td style="color:#34d399">${esc(c.expected_rate || '—')}</td>
+      <td><span class="badge ${availCls}">${esc(c.availability || '—')}</span></td>
+      <td>
+        <button class="btn btn-outline btn-sm" onclick="openDetail('${c.id}')">View</button>
+        <button class="btn btn-outline btn-sm" onclick="openEdit(${JSON.stringify(c).replace(/"/g,'&quot;')})">Edit</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteCandidate('${c.id}')">Del</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function changePage(dir) {
+  const np = currentPage + dir;
+  if (np >= 1 && np <= totalPages) loadCandidates(np);
+}
+
+// ── Candidate Detail Modal ───────────────────────────────────────────────────
+
+async function openDetail(id) {
+  currentDetailId = id;
+  try {
+    const r = await fetch(`${API}/candidates/${id}`);
+    if (!r.ok) { toast('Failed to load candidate', 'error'); return; }
+    const c = await r.json();
+    document.getElementById('detail-name').textContent = c.name || 'Candidate';
+    const skills = [...(c.primary_skills||[]), ...(c.secondary_skills||[])]
+      .filter((v,i,a) => a.indexOf(v) === i)
+      .map(s => `<span class="skill-tag">${esc(s)}</span>`).join('');
+    const edu = (c.education||[]).map(e =>
+      `<li>${esc(e.degree||'')} — ${esc(e.institution||'')} ${esc(e.year||'')}</li>`
+    ).join('');
+    document.getElementById('detail-body').innerHTML = `
+      <div class="detail-grid">
+        <div class="detail-item"><label>Email</label><span>${esc(c.email||'—')}</span></div>
+        <div class="detail-item"><label>Phone</label><span>${esc(c.phone||'—')}</span></div>
+        <div class="detail-item"><label>Location</label><span>${esc(c.location||'—')}</span></div>
+        <div class="detail-item"><label>Current Title</label><span>${esc(c.current_title||'—')}</span></div>
+        <div class="detail-item"><label>Experience</label><span>${c.total_experience_years != null ? c.total_experience_years+' yrs' : '—'}</span></div>
+        <div class="detail-item"><label>Current Employer</label><span>${esc(c.current_employer||'—')}</span></div>
+        <div class="detail-item"><label>Visa Status</label><span><span class="badge badge-visa">${esc(c.visa_status||'—')}</span></span></div>
+        <div class="detail-item"><label>Work Auth</label><span>${esc(c.work_authorization||'—')}</span></div>
+        <div class="detail-item"><label>Availability</label><span>${esc(c.availability||'—')}</span></div>
+        <div class="detail-item"><label>Expected Rate</label><span style="color:#34d399">${esc(c.expected_rate||'—')}</span></div>
+        <div class="detail-item"><label>LinkedIn</label><span>${c.linkedin?`<a href="${esc(c.linkedin)}" target="_blank">Profile</a>`:'—'}</span></div>
+        <div class="detail-item"><label>Parser Used</label><span>${esc(c.parser_used||'—')}</span></div>
+        <div class="detail-item full"><label>Summary</label><span>${esc(c.summary||'—')}</span></div>
+        <div class="detail-item full"><label>Skills</label><div class="skills-list">${skills||'—'}</div></div>
+        <div class="detail-item full"><label>Certifications</label><span>${(c.certifications||[]).join(', ')||'—'}</span></div>
+        <div class="detail-item full"><label>Education</label>${edu?`<ul style="padding-left:16px;font-size:13px;color:#94a3b8">${edu}</ul>`:'—'}</div>
+        <div class="detail-item"><label>Uploaded</label><span style="font-size:12px">${c.uploaded_at?new Date(c.uploaded_at).toLocaleString():'—'}</span></div>
+        <div class="detail-item"><label>Filename</label><span style="font-size:12px">${esc(c.filename||'—')}</span></div>
+      </div>`;
+    openModal('detail-modal');
+  } catch(e) { toast('Error loading candidate', 'error'); }
+}
+
+function openEditFromDetail() {
+  closeModal('detail-modal');
+  fetch(`${API}/candidates/${currentDetailId}`)
+    .then(r => r.json()).then(c => openEdit(c));
+}
+
+async function deleteFromDetail() {
+  if (!confirm('Delete this candidate?')) return;
+  await deleteCandidate(currentDetailId);
+  closeModal('detail-modal');
+}
+
+// ── Edit Modal ───────────────────────────────────────────────────────────────
+
+function openEdit(c) {
+  document.getElementById('edit-id').value = c.id || c._id;
+  document.getElementById('edit-rate').value = c.expected_rate || '';
+  document.getElementById('edit-visa').value = c.visa_status || 'Unknown';
+  document.getElementById('edit-avail').value = c.availability || 'Unknown';
+  document.getElementById('edit-title').value = c.current_title || '';
+  document.getElementById('edit-location').value = c.location || '';
+  openModal('edit-modal');
+}
+
+async function saveEdit() {
+  const id = document.getElementById('edit-id').value;
+  const body = {
+    expected_rate: document.getElementById('edit-rate').value || null,
+    visa_status:   document.getElementById('edit-visa').value || null,
+    availability:  document.getElementById('edit-avail').value || null,
+    current_title: document.getElementById('edit-title').value || null,
+    location:      document.getElementById('edit-location').value || null,
+  };
+  try {
+    const r = await fetch(`${API}/candidates/${id}`, {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    });
+    if (!r.ok) throw new Error((await r.json()).detail);
+    toast('Candidate updated', 'success');
+    closeModal('edit-modal');
+    loadCandidates(currentPage);
+  } catch(e) { toast('Update failed: ' + e.message, 'error'); }
+}
+
+// ── Delete ───────────────────────────────────────────────────────────────────
+
+async function deleteCandidate(id) {
+  if (!confirm('Delete this candidate? This cannot be undone.')) return;
+  try {
+    const r = await fetch(`${API}/candidates/${id}`, { method: 'DELETE' });
+    if (!r.ok) throw new Error((await r.json()).detail);
+    toast('Candidate deleted', 'success');
+    loadCandidates(currentPage);
+  } catch(e) { toast('Delete failed: ' + e.message, 'error'); }
+}
+
+// ── Stats page ───────────────────────────────────────────────────────────────
+
+async function loadStats() {
+  try {
+    const r = await fetch(`${API}/stats`);
+    const d = await r.json();
+    document.getElementById('stats-total').textContent = d.total_candidates ?? 0;
+    renderVisaChart(d.visa_breakdown || []);
+    renderSkillsChart(d.top_skills || []);
+    renderAvailChart(d.availability || []);
+  } catch(e) { toast('Failed to load stats', 'error'); }
+}
+
+const CHART_COLORS = [
+  '#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6',
+  '#06b6d4','#ec4899','#14b8a6','#f97316','#6366f1',
+  '#84cc16','#d946ef','#0ea5e9','#a3a3a3','#fb923c'
+];
+
+function renderVisaChart(data) {
+  if (visaChart) visaChart.destroy();
+  const ctx = document.getElementById('visa-chart').getContext('2d');
+  visaChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: data.map(d => d.visa),
+      datasets: [{
+        data: data.map(d => d.count),
+        backgroundColor: CHART_COLORS,
+        borderColor: '#0f172a', borderWidth: 2
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'right', labels: { color: '#94a3b8', font: { size: 12 } } }
+      }
+    }
+  });
+}
+
+function renderSkillsChart(data) {
+  if (skillsChart) skillsChart.destroy();
+  const ctx = document.getElementById('skills-chart').getContext('2d');
+  skillsChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: data.map(d => d.skill),
+      datasets: [{
+        label: 'Count',
+        data: data.map(d => d.count),
+        backgroundColor: '#3b82f6aa',
+        borderColor: '#3b82f6', borderWidth: 1
+      }]
+    },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' } },
+        y: { ticks: { color: '#94a3b8', font: { size: 11 } }, grid: { display: false } }
+      }
+    }
+  });
+}
+
+function renderAvailChart(data) {
+  if (availChart) availChart.destroy();
+  const ctx = document.getElementById('avail-chart').getContext('2d');
+  availChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: data.map(d => d.availability),
+      datasets: [{
+        label: 'Candidates',
+        data: data.map(d => d.count),
+        backgroundColor: CHART_COLORS,
+        borderRadius: 4
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#94a3b8' }, grid: { color: '#1e293b' } },
+        y: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' } }
+      }
+    }
+  });
+}
+
+// ── Modal helpers ────────────────────────────────────────────────────────────
+
+function openModal(id) {
+  document.getElementById(id).classList.add('open');
+}
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+}
+document.querySelectorAll('.modal-backdrop').forEach(m => {
+  m.addEventListener('click', e => { if (e.target === m) m.classList.remove('open'); });
+});
+
+// ── Escape helper ────────────────────────────────────────────────────────────
+
+function esc(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+loadUploadStats();
+</script>
+</body>
+</html>
