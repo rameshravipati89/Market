@@ -4,42 +4,42 @@ kind: Kustomization
 namespace: mlm
 
 resources:
-  - namespace.yaml
-  - configmap.yaml
-  - mongodb/deployment.yaml
-  - mail-injector/deployment.yaml
-  - mailclean/deployment.yaml
-  - localadmin/backend.yaml
-  - localadmin/frontend.yaml
-  - recruiter-pro/backend.yaml
-  - recruiter-pro/frontend.yaml
-  - cloudflare-tunnel/deployment.yaml
+- namespace.yaml
+- configmap.yaml
+- mongodb/deployment.yaml
+- mail-injector/deployment.yaml
+- mailclean/deployment.yaml
+- localadmin/backend.yaml
+- localadmin/frontend.yaml
+- recruiter-pro/backend.yaml
+- recruiter-pro/frontend.yaml
+- cloudflare-tunnel/deployment.yaml
 
 # ── Secrets (kustomize encodes these to base64 automatically) ─────────────────
 secretGenerator:
-  - name: mlm-secrets
-    literals:
-      - MONGO_INITDB_ROOT_USERNAME=admin
-      - MONGO_INITDB_ROOT_PASSWORD=admin123
-      - MONGO_URI=mongodb://admin:admin123@mongodb:27017/maildb?authSource=admin
-      - ADMIN_PASSWORD=Biriyani@123
-      - JWT_SECRET=local-admin-jwt-secret-2024
-      - ANTHROPIC_API_KEY=
-      - GROQ_API_KEY=
-    options:
-      disableNameSuffixHash: true
+- literals:
+  - MONGO_INITDB_ROOT_USERNAME=admin
+  - MONGO_INITDB_ROOT_PASSWORD=admin123
+  - MONGO_URI=mongodb://admin:admin123@mongodb:27017/maildb?authSource=admin
+  - ADMIN_PASSWORD=Biriyani@123
+  - JWT_SECRET=local-admin-jwt-secret-2024
+  - ANTHROPIC_API_KEY=
+  - GROQ_API_KEY=
+  name: mlm-secrets
+  options:
+    disableNameSuffixHash: true
 
 # ── Image tags — updated automatically by GitHub Actions on deploy-RR ─────────
 images:
-  - name: ghcr.io/rameshravipati89/market-mail-injector
-    newTag: latest
-  - name: ghcr.io/rameshravipati89/market-mailclean
-    newTag: latest
-  - name: ghcr.io/rameshravipati89/market-localadmin-api
-    newTag: latest
-  - name: ghcr.io/rameshravipati89/market-localadmin-frontend
-    newTag: latest
-  - name: ghcr.io/rameshravipati89/market-recruiter-backend
-    newTag: latest
-  - name: ghcr.io/rameshravipati89/market-recruiter-frontend
-    newTag: latest
+- name: ghcr.io/rameshravipati89/market-localadmin-api
+  newTag: 5ef1f8af
+- name: ghcr.io/rameshravipati89/market-localadmin-frontend
+  newTag: 5ef1f8af
+- name: ghcr.io/rameshravipati89/market-mail-injector
+  newTag: 5ef1f8af
+- name: ghcr.io/rameshravipati89/market-mailclean
+  newTag: 5ef1f8af
+- name: ghcr.io/rameshravipati89/market-recruiter-backend
+  newTag: 5ef1f8af
+- name: ghcr.io/rameshravipati89/market-recruiter-frontend
+  newTag: 5ef1f8af
