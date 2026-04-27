@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mail-injector
+  namespace: mlm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mail-injector
+  template:
+    metadata:
+      labels:
+        app: mail-injector
+    spec:
+      containers:
+        - name: mail-injector
+          image: ghcr.io/rameshravipati89/market-mail-injector:latest
+          env:
+            - name: MONGO_URI
+              valueFrom:
+                secretKeyRef:
+                  name: mlm-secrets
+                  key: MONGO_URI
+            - name: MONGO_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: mlm-config
+                  key: MONGO_DB
+            - name: IMAP_BATCH_SIZE
+              valueFrom:
+                configMapKeyRef:
+                  name: mlm-config
+                  key: IMAP_BATCH_SIZE
+            - name: BACKFILL_DAYS
+              valueFrom:
+                configMapKeyRef:
+                  name: mlm-config
+                  key: BACKFILL_DAYS
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"

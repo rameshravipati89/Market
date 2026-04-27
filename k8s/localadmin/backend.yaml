@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: localadmin-api
+  namespace: mlm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: localadmin-api
+  template:
+    metadata:
+      labels:
+        app: localadmin-api
+    spec:
+      containers:
+        - name: localadmin-api
+          image: ghcr.io/rameshravipati89/market-localadmin-api:latest
+          ports:
+            - containerPort: 8000
+          env:
+            - name: MONGO_URI
+              valueFrom:
+                secretKeyRef:
+                  name: mlm-secrets
+                  key: MONGO_URI
+            - name: MONGO_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: mlm-config
+                  key: MONGO_DB
+            - name: PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: mlm-config
+                  key: PORT
+            - name: ADMIN_USERNAME
+              valueFrom:
+                configMapKeyRef:
+                  name: mlm-config
+                  key: ADMIN_USERNAME
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mlm-secrets
+                  key: ADMIN_PASSWORD
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: mlm-secrets
+                  key: JWT_SECRET
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: mlm-secrets
+                  key: ANTHROPIC_API_KEY
+            - name: GROQ_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: mlm-secrets
+                  key: GROQ_API_KEY
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: localadmin-api
+  namespace: mlm
+spec:
+  selector:
+    app: localadmin-api
+  ports:
+    - port: 8000
+      targetPort: 8000

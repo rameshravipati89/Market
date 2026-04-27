@@ -13,6 +13,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import database
 from routers import candidates, mail_events
+from routers.auth import router as auth_router
+from routers.credentials_mgmt import router as creds_router
 
 load_dotenv()
 
@@ -44,5 +46,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth_router)
+app.include_router(creds_router)
 app.include_router(mail_events.router)
 app.include_router(candidates.router)

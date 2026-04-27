@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { authFetch } from "../api.js";
 
 const API = import.meta.env.VITE_API_URL || "/api";
 
@@ -25,7 +26,7 @@ export default function MailDetail({ id, onClose }) {
   const textareaRef = useRef(null);
 
   useEffect(() => {
-    fetch(`${API}/mail-events/${id}`)
+    authFetch(`${API}/mail-events/${id}`)
       .then((r) => r.json())
       .then(setDoc)
       .finally(() => setLoading(false));
@@ -37,7 +38,7 @@ export default function MailDetail({ id, onClose }) {
     setDraft("");
     setProvider("");
     try {
-      const r = await fetch(`${API}/mail-events/${id}/draft-reply`, { method: "POST" });
+      const r = await authFetch(`${API}/mail-events/${id}/draft-reply`, { method: "POST" });
       const data = await r.json();
       if (!r.ok) throw new Error(data.detail || "Generation failed");
       setDraft(data.reply);

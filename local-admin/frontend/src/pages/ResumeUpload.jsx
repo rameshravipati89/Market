@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { authFetch, getToken } from "../api.js";
 
 const API = (import.meta.env.VITE_API_URL || "/api") + "/resume";
 
@@ -107,7 +108,7 @@ function CandidateModal({ candidate, onClose, onDeleted, onUpdated }) {
     try {
       const updates = {};
       Object.entries(form).forEach(([k, v]) => { if (v) updates[k] = v; });
-      const r = await fetch(`${API}/candidates/${candidate.id}`, {
+      const r = await authFetch(`${API}/candidates/${candidate.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updates),
@@ -126,7 +127,7 @@ function CandidateModal({ candidate, onClose, onDeleted, onUpdated }) {
     if (!confirm(`Delete ${candidate.name || "this candidate"}?`)) return;
     setDeleting(true);
     try {
-      const r = await fetch(`${API}/candidates/${candidate.id}`, { method: "DELETE" });
+      const r = await authFetch(`${API}/candidates/${candidate.id}`, { method: "DELETE" });
       if (!r.ok) throw new Error("Delete failed");
       onDeleted();
     } catch {
@@ -259,7 +260,7 @@ export default function ResumeUpload() {
   // ── stats ──────────────────────────────────────────────────
   async function loadStats() {
     try {
-      const r = await fetch(`${API}/stats`);
+      const r = await authFetch(`${API}/stats`);
       if (!r.ok) return;
       setStats(await r.json());
     } catch { /* ignore */ }
@@ -284,6 +285,8 @@ export default function ResumeUpload() {
 
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${API}/upload`);
+    const token = getToken();
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) {
         setQueue((q) => q.map((i) => i.id === id ? { ...i, progress: Math.round(e.loaded / e.total * 80) } : i));
@@ -328,7 +331,7 @@ export default function ResumeUpload() {
     if (visaFilter)  params.set("visa", visaFilter);
     if (availFilter) params.set("availability", availFilter);
     try {
-      const r = await fetch(`${API}/candidates?${params}`);
+      const r = await authFetch(`${API}/candidates?${params}`);
       const d = await r.json();
       setCandidates(d.candidates || []);
       setTotal(d.total || 0);

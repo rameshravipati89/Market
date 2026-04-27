@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mailclean
+  namespace: mlm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mailclean
+  template:
+    metadata:
+      labels:
+        app: mailclean
+    spec:
+      containers:
+        - name: mailclean
+          image: ghcr.io/rameshravipati89/market-mailclean:latest
+          env:
+            - name: MONGO_URI
+              valueFrom:
+                secretKeyRef:
+                  name: mlm-secrets
+                  key: MONGO_URI
+            - name: MONGO_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: mlm-config
+                  key: MONGO_DB
+            - name: BATCH_SIZE
+              valueFrom:
+                configMapKeyRef:
+                  name: mlm-config
+                  key: BATCH_SIZE
+            - name: LOOP_SLEEP_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: mlm-config
+                  key: LOOP_SLEEP_SECONDS
+            - name: SPACY_MODEL
+              valueFrom:
+                configMapKeyRef:
+                  name: mlm-config
+                  key: SPACY_MODEL
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1.5Gi"
+              cpu: "1000m"

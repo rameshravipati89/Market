@@ -7,9 +7,9 @@ Architecture:
   3. On notification   — exit IDLE → fetch UNSEEN → insert → re-enter IDLE
   4. IDLE refresh      — re-enter IDLE every 25 min (RFC 2177 max ~29 min)
   5. Auto-reconnect    — exponential backoff if connection drops
+  6. Dynamic reload    — checks MongoDB every 60s; picks up added/removed accounts
 
-One thread per IMAP account — all share the same MongoDB connection pool.
-Latency: < 2 seconds from mail arrival to MongoDB insertion.
+All fetches use BODY.PEEK[] and readonly=True — zero changes to mail server state.
 """
 
 import email
@@ -30,12 +30,13 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-MONGO_URI     = os.environ["MONGO_URI"]
-MONGO_DB      = os.environ.get("MONGO_DB", "maildb")
-BATCH_SIZE    = int(os.environ.get("IMAP_BATCH_SIZE", 200))
-BACKFILL_DAYS = int(os.environ.get("BACKFILL_DAYS", 7))
-IDLE_TIMEOUT     = 25 * 60   # 25 minutes — refresh before server's 29-min limit
-MAX_IDLE_CYCLES  = 12        # force full reconnect after ~5 hours (12 × 25 min)
+MONGO_URI        = os.environ["MONGO_URI"]
+MONGO_DB         = os.environ.get("MONGO_DB", "maildb")
+BATCH_SIZE       = int(os.environ.get("IMAP_BATCH_SIZE", 200))
+BACKFILL_DAYS    = int(os.environ.get("BACKFILL_DAYS", 7))
+IDLE_CHECK_SECS  = 60          # check stop-event and keep-alive every 60s
+MAX_IDLE_CYCLES  = 25          # force reconnect after ~25 min (25 × 60s)
+RELOAD_INTERVAL  = 60          # seconds between credential reloads from MongoDB
 
 # ── Shared MongoDB pool ────────────────────────────────────────────────────────
 _mongo      = MongoClient(MONGO_URI, serverSelectionTimeoutMS=10_000)
@@ -43,32 +44,30 @@ _db         = _mongo[MONGO_DB]
 mail_events = _db["mail_events"]
 credentials = _db["credentials"]
 
-# Ensure deduplication index exists
 try:
     mail_events.create_index("message_id", unique=True, sparse=True, name="idx_message_id")
 except Exception:
-    pass  # index already exists
+    pass
+
+# ── Watcher registry ──────────────────────────────────────────────────────────
+_registry:      dict[str, "AccountWatcher"] = {}
+_registry_lock = threading.Lock()
 
 
 # ── Credential loader ─────────────────────────────────────────────────────────
 
-def load_imap_accounts() -> list[dict]:
-    accounts = list(
-        credentials.find(
+def _load_active_accounts() -> dict[str, dict]:
+    return {
+        a["user"]: a
+        for a in credentials.find(
             {"type": "imap", "active": True},
             {"_id": 0, "host": 1, "port": 1, "ssl": 1,
              "user": 1, "password": 1, "label": 1}
         )
-    )
-    if not accounts:
-        raise RuntimeError("No active IMAP accounts found in credentials collection.")
-    log.info("Loaded %d IMAP account(s):", len(accounts))
-    for a in accounts:
-        log.info("  → %s (%s)", a.get("label", ""), a["user"])
-    return accounts
+    }
 
 
-# ── Quick field extractors (scoring-based, no external deps) ─────────────────
+# ── Quick field extractors ─────────────────────────────────────────────────────
 
 _US_STATES = (
     "AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|"
@@ -78,11 +77,10 @@ _US_STATES = (
 _RE_LOCATION = re.compile(
     rf"([A-Z][a-zA-Z .']{{2,25}}),\s*({_US_STATES})\b"
 )
-_RE_REMOTE = re.compile(r"\bremote\b",     re.IGNORECASE)
-_RE_HYBRID = re.compile(r"\bhybrid\b",     re.IGNORECASE)
+_RE_REMOTE = re.compile(r"\bremote\b",       re.IGNORECASE)
+_RE_HYBRID = re.compile(r"\bhybrid\b",       re.IGNORECASE)
 _RE_ONSITE = re.compile(r"\bon[-\s]?site\b", re.IGNORECASE)
 
-# Words that strongly indicate a job role segment — each match = +3 pts
 _ROLE_WORDS = re.compile(
     r"\b(engineer|engineering|developer|dev|architect|analyst|scientist|"
     r"administrator|admin|consultant|specialist|manager|lead|director|"
@@ -90,8 +88,6 @@ _ROLE_WORDS = re.compile(
     r"qa|tester|sre|devops|dba|cto|cio|vp)\b",
     re.IGNORECASE,
 )
-
-# Tech/domain keywords — each match = +2 pts
 _TECH_WORDS = re.compile(
     r"\b(network|networking|wireless|wifi|wi-fi|lan|wan|cisco|juniper|"
     r"python|java|javascript|typescript|golang|go|rust|c\+\+|c#|scala|kotlin|"
@@ -107,15 +103,11 @@ _TECH_WORDS = re.compile(
     r"erp|crm|bi|etl|scrum|agile|pmo)\b",
     re.IGNORECASE,
 )
-
-# Seniority signals — each match = +2 pts
 _SENIORITY_WORDS = re.compile(
     r"\b(senior|sr|junior|jr|lead|staff|principal|associate|entry.level|"
     r"mid.level|experienced)\b",
     re.IGNORECASE,
 )
-
-# Noise segments that should NEVER be a job title — score penalty = -10 pts
 _NOISE_SEGMENT = re.compile(
     r"^(urgent|immediate|hot|opening|requirement|req|position|role|"
     r"hiring|need|new|job|contract|c2c|w2|1099|fulltime|part.time|"
@@ -125,39 +117,25 @@ _NOISE_SEGMENT = re.compile(
     r"opportunity|available|opening|we.re|we.are|looking)\s*[:\!\*\#\@\.]*$",
     re.IGNORECASE,
 )
-
 _DELIMITERS = re.compile(r"[|/\\]+|(?:\s*[-–—]\s*)")
 
 
 def _score_segment(seg: str) -> int:
-    """
-    Score how likely this segment is to be a job title.
-    Higher = more likely to be the actual title.
-    """
-    score = 0
-    score += len(_ROLE_WORDS.findall(seg))     * 3
-    score += len(_TECH_WORDS.findall(seg))     * 2
-    score += len(_SENIORITY_WORDS.findall(seg))* 2
-
-    # Penalise noise
+    score  = len(_ROLE_WORDS.findall(seg))      * 3
+    score += len(_TECH_WORDS.findall(seg))      * 2
+    score += len(_SENIORITY_WORDS.findall(seg)) * 2
     if _NOISE_SEGMENT.match(seg.strip()):
         score -= 10
-
-    # Penalise locations
     if _RE_LOCATION.search(seg):
         score -= 5
-
-    # Penalise pure work-type / contract-type segments
     if _RE_REMOTE.fullmatch(seg.strip()) or _RE_HYBRID.fullmatch(seg.strip()) or _RE_ONSITE.fullmatch(seg.strip()):
         score -= 10
     if re.fullmatch(r"(contract|fulltime|full.time|part.time|c2c|w2)", seg.strip(), re.IGNORECASE):
         score -= 10
-
     return score
 
 
 def _extract_work_type(text: str) -> str:
-    """Return 'Remote', 'Hybrid', 'Onsite', or '' from subject/body text."""
     if _RE_HYBRID.search(text): return "Hybrid"
     if _RE_REMOTE.search(text): return "Remote"
     if _RE_ONSITE.search(text): return "Onsite"
@@ -165,7 +143,6 @@ def _extract_work_type(text: str) -> str:
 
 
 def _extract_cities(text: str) -> list[str]:
-    """Return up to 3 'City, ST' strings found in the text."""
     seen = []
     for city, state in _RE_LOCATION.findall(text):
         loc = f"{city.strip()}, {state.strip()}"
@@ -177,48 +154,25 @@ def _extract_cities(text: str) -> list[str]:
 
 
 def _extract_job_title(subject: str) -> str:
-    """
-    Scoring-based job title extractor.
-
-    Each segment of the subject (split on // | - etc.) is scored:
-      +3 per role word   (engineer, developer, analyst …)
-      +2 per tech word   (network, wireless, java, cloud …)
-      +2 per seniority   (senior, lead, principal …)
-      -10 for pure noise (urgent, requirement, contract …)
-      -5  for locations
-      -10 for pure work-type (remote, hybrid, onsite)
-
-    The highest-scoring segment with score > 0 wins.
-
-    Example:
-      "Urgent requirement // Lead Network Wireless Engineer // New York, NY (Onsite) // Contract"
-       → scores: -10, +7, -5, -10  → winner: "Lead Network Wireless Engineer"
-    """
-    # Strip RE:/FW: prefixes
     subject = re.sub(r"^(re|fw|fwd)\s*:\s*", "", subject, flags=re.IGNORECASE).strip()
-
     parts = [p.strip() for p in _DELIMITERS.split(subject) if p.strip()]
-
     best_score, best_part = 0, ""
     for part in parts:
         if len(part) < 3:
             continue
         s = _score_segment(part)
         if s > best_score:
-            best_score = s
-            best_part  = part
-
+            best_score, best_part = s, part
     return best_part[:120] if best_part else ""
 
 
 # ── Email parser ───────────────────────────────────────────────────────────────
 
 def _get_body(msg: email.message.Message) -> str:
-    """Prefer text/html so mailclean has full content; fallback to text/plain."""
     html_body = plain_body = ""
     if msg.is_multipart():
         for part in msg.walk():
-            ct = part.get_content_type()
+            ct      = part.get_content_type()
             payload = part.get_payload(decode=True)
             if not payload:
                 continue
@@ -270,7 +224,6 @@ def parse_email(uid: int, raw: bytes, fetched_for: str) -> dict:
     job_contact_mail = reply_to_addr.lower() if reply_to_addr else from_email
 
     def _h(key: str) -> str:
-        """Get and MIME-decode a header value (handles =?UTF-8?Q?...?= etc.)."""
         val = msg.get(key, "")
         if not val:
             return ""
@@ -282,13 +235,7 @@ def parse_email(uid: int, raw: bytes, fetched_for: str) -> dict:
 
     subject   = _h("Subject")
     body      = _get_body(msg)
-
-    # Combine subject + first 2000 chars of body for field extraction
     scan_text = subject + "\n" + body[:2000]
-
-    work_type = _extract_work_type(scan_text)
-    cities    = _extract_cities(scan_text)
-    job_title = _extract_job_title(subject)
 
     return {
         "message_id":       _h("Message-ID"),
@@ -301,17 +248,15 @@ def parse_email(uid: int, raw: bytes, fetched_for: str) -> dict:
         "job_contact_mail": job_contact_mail,
         "fetched_for":      fetched_for,
         "received_at":      datetime.now(timezone.utc),
-        # ── Quick-extracted fields ──────────────────────
-        "job_title":        job_title,   # e.g. "Java Developer"
-        "work_type":        work_type,   # Remote | Hybrid | Onsite | ""
-        "cities":           cities,      # ["Austin, TX", "Dallas, TX"]
+        "job_title":        _extract_job_title(subject),
+        "work_type":        _extract_work_type(scan_text),
+        "cities":           _extract_cities(scan_text),
     }
 
 
 # ── MongoDB insert ─────────────────────────────────────────────────────────────
 
 def insert_docs(docs: list[dict], label: str) -> int:
-    """Insert docs, silently skip duplicates by message_id."""
     if not docs:
         return 0
     try:
@@ -330,7 +275,6 @@ def insert_docs(docs: list[dict], label: str) -> int:
 # ── IMAP fetch helpers ─────────────────────────────────────────────────────────
 
 def fetch_uids(client: IMAPClient, uids: list, label: str) -> int:
-    """Fetch a list of UIDs in batches and insert into MongoDB."""
     if not uids:
         return 0
     total = 0
@@ -347,7 +291,6 @@ def fetch_uids(client: IMAPClient, uids: list, label: str) -> int:
 
 
 def backfill(client: IMAPClient, user: str) -> int:
-    """Fetch all messages from the last BACKFILL_DAYS days (seen or unseen)."""
     since_date = (datetime.now() - timedelta(days=BACKFILL_DAYS)).strftime("%d-%b-%Y")
     uids = client.search(["SINCE", since_date])
     log.info("[%s] Backfill: %d email(s) in last %d day(s)", user, len(uids), BACKFILL_DAYS)
@@ -355,7 +298,6 @@ def backfill(client: IMAPClient, user: str) -> int:
 
 
 def fetch_unseen(client: IMAPClient, user: str) -> int:
-    """Fetch all currently UNSEEN messages."""
     uids = client.search(["UNSEEN"])
     if uids:
         log.info("[%s] IDLE triggered: %d UNSEEN message(s)", user, len(uids))
@@ -368,58 +310,70 @@ class AccountWatcher(threading.Thread):
     """
     One persistent IMAP connection per account.
     Backs off and reconnects automatically on any failure.
+    Call stop() to signal graceful shutdown.
     """
 
     def __init__(self, acct: dict):
         super().__init__(name=acct["user"], daemon=True)
-        self.acct    = acct
-        self.user    = acct["user"]
-        self.label   = acct.get("label", self.user)
+        self.acct       = acct
+        self.user       = acct["user"]
+        self.label      = acct.get("label", self.user)
+        self._stop_evt  = threading.Event()
+
+    def stop(self):
+        self._stop_evt.set()
 
     def run(self):
         backoff = 5
-        while True:
+        while not self._stop_evt.is_set():
             try:
                 self._connect_and_watch()
-                backoff = 5   # reset on clean exit
+                backoff = 5
             except Exception as exc:
+                if self._stop_evt.is_set():
+                    break
                 log.error("[%s] Connection lost — reconnecting in %ds: %s",
                           self.user, backoff, exc)
-                time.sleep(backoff)
-                backoff = min(backoff * 2, 120)   # cap at 2 minutes
+                for _ in range(backoff):
+                    if self._stop_evt.is_set():
+                        return
+                    time.sleep(1)
+                backoff = min(backoff * 2, 120)
 
     def _connect_and_watch(self):
         host    = self.acct["host"]
         port    = int(self.acct.get("port", 993))
         use_ssl = self.acct.get("ssl", True)
 
-        log.info("[%s] Connecting to %s:%s…", self.user, host, port)
+        log.info("[%s] Connecting to %s:%s (read-only)…", self.user, host, port)
         with IMAPClient(host, port=port, ssl=use_ssl) as client:
             client.login(self.user, self.acct["password"])
-            client.select_folder("INBOX", readonly=False)
+            # readonly=True — we never modify any flags; BODY.PEEK[] for zero state changes
+            client.select_folder("INBOX", readonly=True)
             log.info("[%s] Connected. Running %d-day backfill…", self.user, BACKFILL_DAYS)
 
-            # ── 1. Backfill last N days on connect ─────────────────────────────
             backfill(client, self.user)
 
-            # ── 2. IDLE loop ───────────────────────────────────────────────────
+            if self._stop_evt.is_set():
+                return
+
             log.info("[%s] Entering IDLE — real-time push active.", self.user)
             client.idle()
             idle_cycles = 0
 
-            while True:
-                # Wait up to IDLE_TIMEOUT for a server notification
-                responses = client.idle_check(timeout=IDLE_TIMEOUT)
+            while not self._stop_evt.is_set():
+                responses   = client.idle_check(timeout=IDLE_CHECK_SECS)
                 client.idle_done()
                 idle_cycles += 1
 
-                # Force reconnect every MAX_IDLE_CYCLES to prevent silent drops
+                if self._stop_evt.is_set():
+                    return
+
                 if idle_cycles >= MAX_IDLE_CYCLES:
                     log.info("[%s] Scheduled reconnect after %d IDLE cycles.",
                              self.user, idle_cycles)
-                    return  # triggers reconnect in run() loop
+                    return
 
-                # Check if server signalled new mail (EXISTS or RECENT)
                 new_mail = any(
                     msg_type in (b"EXISTS", b"RECENT")
                     for _, msg_type in responses
@@ -428,41 +382,77 @@ class AccountWatcher(threading.Thread):
 
                 if new_mail:
                     fetch_unseen(client, self.user)
-                elif responses:
-                    # Other server notification (FLAGS, expunge, etc.) — ignore
-                    log.debug("[%s] IDLE response (no new mail): %s", self.user, responses)
-                else:
-                    # Timeout — just refresh IDLE (keep-alive)
-                    log.debug("[%s] IDLE refresh (timeout)", self.user)
+                elif not responses:
+                    log.debug("[%s] IDLE keep-alive", self.user)
 
-                # Re-enter IDLE for next notification
-                client.idle()
+                if not self._stop_evt.is_set():
+                    client.idle()
+
+
+# ── Dynamic credential sync ───────────────────────────────────────────────────
+
+def _sync_watchers():
+    """Start watchers for newly added accounts; stop watchers for removed ones."""
+    try:
+        current = _load_active_accounts()
+    except Exception as exc:
+        log.error("[Reload] Could not load credentials: %s", exc)
+        return
+
+    with _registry_lock:
+        for user, acct in current.items():
+            if user not in _registry or not _registry[user].is_alive():
+                t = AccountWatcher(acct)
+                t.start()
+                _registry[user] = t
+                log.info("[Reload] Started watcher for %s", user)
+
+        for user in list(_registry.keys()):
+            if user not in current:
+                log.info("[Reload] Stopping watcher for %s (removed/deactivated)", user)
+                _registry[user].stop()
+                del _registry[user]
+
+
+def _credential_reloader():
+    """Background thread: sync watchers with MongoDB every RELOAD_INTERVAL seconds."""
+    while True:
+        time.sleep(RELOAD_INTERVAL)
+        _sync_watchers()
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    log.info("mail_injector starting (IDLE mode) — loading credentials from MongoDB…")
+    log.info("mail_injector starting — loading credentials from MongoDB…")
 
-    # Wait for MongoDB to be ready
     for attempt in range(1, 11):
         try:
-            ACCOUNTS = load_imap_accounts()
+            initial = _load_active_accounts()
+            if not initial:
+                raise RuntimeError("No active IMAP accounts found.")
             break
         except Exception as exc:
             log.warning("Attempt %d/10 — not ready: %s", attempt, exc)
             time.sleep(5)
     else:
-        log.error("Could not load credentials after 10 attempts. Exiting.")
-        raise SystemExit(1)
+        log.warning("No active credentials at startup — will poll for new ones.")
+        initial = {}
 
-    log.info("Starting %d watcher thread(s)…", len(ACCOUNTS))
-    threads = []
-    for acct in ACCOUNTS:
-        t = AccountWatcher(acct)
-        t.start()
-        threads.append(t)
+    log.info("Starting %d initial watcher(s)…", len(initial))
+    with _registry_lock:
+        for user, acct in initial.items():
+            t = AccountWatcher(acct)
+            t.start()
+            _registry[user] = t
 
-    # Main thread keeps process alive
-    for t in threads:
-        t.join()
+    reload_thread = threading.Thread(
+        target=_credential_reloader,
+        name="credential-reloader",
+        daemon=True,
+    )
+    reload_thread.start()
+    log.info("Credential reloader active (checks every %ds).", RELOAD_INTERVAL)
+
+    # Keep main thread alive
+    reload_thread.join()

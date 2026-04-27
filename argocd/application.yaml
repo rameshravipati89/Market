@@ -1,0 +1,42 @@
+# Apply this to your ArgoCD cluster:
+#   kubectl apply -f argocd/application.yaml -n argocd
+#
+# Before applying, add the repo to ArgoCD (one-time):
+#   argocd repo add https://github.com/rameshravipati89/Market.git \
+#     --username rameshravipati89 \
+#     --password <GITHUB_PAT>
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: multilevel-marketing
+  namespace: argocd
+  labels:
+    project: multilevel-marketing
+    owner: RR
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/rameshravipati89/Market.git
+    targetRevision: main
+    path: k8s
+    # kustomize is auto-detected from kustomization.yaml
+
+  destination:
+    server: https://kubernetes.default.svc   # same cluster as ArgoCD
+    namespace: mlm
+
+  syncPolicy:
+    automated:
+      prune: true      # remove resources deleted from git
+      selfHeal: true   # revert manual kubectl changes
+    syncOptions:
+      - CreateNamespace=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m

@@ -1,0 +1,53 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mlm-config
+  namespace: mlm
+data:
+  MONGO_DB:            "maildb"
+  IMAP_BATCH_SIZE:     "200"
+  BACKFILL_DAYS:       "7"
+  BATCH_SIZE:          "100"
+  LOOP_SLEEP_SECONDS:  "120"
+  SPACY_MODEL:         "en_core_web_lg"
+  PORT:                "8000"
+  ADMIN_USERNAME:      "admin"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mongodb-init
+  namespace: mlm
+data:
+  01_seed.js: |
+    db = db.getSiblingDB('maildb');
+
+    db.credentials.createIndex(
+      { type: 1, user: 1 },
+      { unique: true, name: "idx_type_user" }
+    );
+    db.credentials.createIndex(
+      { type: 1, active: 1 },
+      { name: "idx_type_active" }
+    );
+    db.mail_events.createIndex(
+      { message_id: 1 },
+      { unique: true, sparse: true, name: "idx_message_id" }
+    );
+
+    if (db.credentials.countDocuments({}) === 0) {
+      db.credentials.insertOne({
+        type:       "imap",
+        label:      "VirtuousTech Bluehost",
+        user:       "Sanathm@virtuoustech.com",
+        password:   "24R21E0082",
+        host:       "mail.virtuoustech.com",
+        port:       993,
+        ssl:        true,
+        active:     true,
+        created_at: new Date()
+      });
+      print("Seeded IMAP credentials.");
+    } else {
+      print("IMAP credentials already present — skipping seed.");
+    }

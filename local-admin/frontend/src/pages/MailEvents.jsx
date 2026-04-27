@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { authFetch } from "../api.js";
 import MailCard from "../components/MailCard.jsx";
 
 const API = import.meta.env.VITE_API_URL || "/api";
@@ -16,7 +17,7 @@ export default function MailEvents() {
 
   // Load stats
   function loadStats() {
-    fetch(`${API}/stats`)
+    authFetch(`${API}/stats`)
       .then((r) => r.json())
       .then(setStats)
       .catch(() => {});
@@ -29,7 +30,7 @@ export default function MailEvents() {
     const params = new URLSearchParams({ page, limit: 20 });
     if (query)        params.set("search", query);
     if (statusFilter) params.set("status", statusFilter);
-    fetch(`${API}/mail-events?${params}`)
+    authFetch(`${API}/mail-events?${params}`)
       .then((r) => r.json())
       .then((res) => {
         setMails(res.data || []);

@@ -98,6 +98,9 @@ services:
       PORT:             "8000"
       ANTHROPIC_API_KEY: ""
       GROQ_API_KEY:      ""
+      ADMIN_USERNAME:    "admin"
+      ADMIN_PASSWORD:    "Biriyani@123"
+      JWT_SECRET:        "local-admin-jwt-secret-2024"
     depends_on:
       mongodb:
         condition: service_healthy

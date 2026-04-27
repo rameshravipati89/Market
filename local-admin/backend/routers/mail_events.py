@@ -12,6 +12,7 @@ from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from database import get_db
+from routers.auth import get_current_user
 from services import draft_reply_service
 
 log = logging.getLogger(__name__)
@@ -30,7 +31,7 @@ def _serialize(doc: dict) -> dict:
 
 
 @router.get("/api/stats")
-async def get_stats(db=Depends(get_db)):
+async def get_stats(db=Depends(get_db), _=Depends(get_current_user)):
     today = datetime.now(timezone.utc).replace(
         hour=0, minute=0, second=0, microsecond=0
     )
@@ -59,6 +60,7 @@ async def list_mail_events(
     job_title: Optional[str]  = Query(None),
     skill:     Optional[str]  = Query(None),
     db=Depends(get_db),
+    _=Depends(get_current_user),
 ):
     skip = (page - 1) * limit
     query: dict = {}
@@ -105,7 +107,7 @@ async def list_mail_events(
 
 
 @router.get("/api/mail-events/{event_id}")
-async def get_mail_event(event_id: str, db=Depends(get_db)):
+async def get_mail_event(event_id: str, db=Depends(get_db), _=Depends(get_current_user)):
     try:
         oid = ObjectId(event_id)
     except Exception:
@@ -117,7 +119,7 @@ async def get_mail_event(event_id: str, db=Depends(get_db)):
 
 
 @router.post("/api/mail-events/{event_id}/draft-reply")
-async def draft_reply(event_id: str, db=Depends(get_db)):
+async def draft_reply(event_id: str, db=Depends(get_db), _=Depends(get_current_user)):
     try:
         oid = ObjectId(event_id)
     except Exception:
@@ -136,10 +138,3 @@ async def draft_reply(event_id: str, db=Depends(get_db)):
         raise HTTPException(500, f"AI generation failed: {exc}")
 
 
-@router.get("/api/credentials")
-async def list_credentials(db=Depends(get_db)):
-    cursor = (
-        db.credentials.find({"type": "imap"}, {"password": 0})
-        .sort("created_at", pymongo.DESCENDING)
-    )
-    return [_serialize(d) async for d in cursor]

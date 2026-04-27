@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 
 from database import get_db
 from models import CandidateUpdate
+from routers.auth import get_current_user
 from services import docx_extractor, resume_service
 
 log = logging.getLogger(__name__)
@@ -40,7 +41,7 @@ def _oid(id_str: str) -> ObjectId:
 # ── Upload ─────────────────────────────────────────────────────────────────────
 
 @router.post("/upload")
-async def upload_resume(file: UploadFile = File(...), db=Depends(get_db)):
+async def upload_resume(file: UploadFile = File(...), db=Depends(get_db), _=Depends(get_current_user)):
     if not file.filename.lower().endswith(".docx"):
         raise HTTPException(400, "Only .docx files are supported")
 
@@ -60,7 +61,7 @@ async def upload_resume(file: UploadFile = File(...), db=Depends(get_db)):
 
 
 @router.post("/bulk-upload")
-async def bulk_upload(files: list[UploadFile] = File(...), db=Depends(get_db)):
+async def bulk_upload(files: list[UploadFile] = File(...), db=Depends(get_db), _=Depends(get_current_user)):
     results = []
     for f in files:
         try:
@@ -91,6 +92,7 @@ async def list_candidates(
     page:         int           = Query(1, ge=1),
     limit:        int           = Query(20, ge=1, le=100),
     db=Depends(get_db),
+    _=Depends(get_current_user),
 ):
     query: dict = {}
     if search:
@@ -113,7 +115,7 @@ async def list_candidates(
 
 
 @router.get("/candidates/{candidate_id}")
-async def get_candidate(candidate_id: str, db=Depends(get_db)):
+async def get_candidate(candidate_id: str, db=Depends(get_db), _=Depends(get_current_user)):
     doc = await db.candidates.find_one({"_id": _oid(candidate_id)})
     if not doc:
         raise HTTPException(404, "Candidate not found")
@@ -122,7 +124,7 @@ async def get_candidate(candidate_id: str, db=Depends(get_db)):
 
 @router.put("/candidates/{candidate_id}")
 async def update_candidate(
-    candidate_id: str, body: CandidateUpdate, db=Depends(get_db)
+    candidate_id: str, body: CandidateUpdate, db=Depends(get_db), _=Depends(get_current_user)
 ):
     from datetime import timezone
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
@@ -138,7 +140,7 @@ async def update_candidate(
 
 
 @router.delete("/candidates/{candidate_id}")
-async def delete_candidate(candidate_id: str, db=Depends(get_db)):
+async def delete_candidate(candidate_id: str, db=Depends(get_db), _=Depends(get_current_user)):
     result = await db.candidates.delete_one({"_id": _oid(candidate_id)})
     if result.deleted_count == 0:
         raise HTTPException(404, "Candidate not found")
@@ -148,7 +150,7 @@ async def delete_candidate(candidate_id: str, db=Depends(get_db)):
 # ── Stats ──────────────────────────────────────────────────────────────────────
 
 @router.get("/stats")
-async def resume_stats(db=Depends(get_db)):
+async def resume_stats(db=Depends(get_db), _=Depends(get_current_user)):
     visa_pipeline = [
         {"$group": {"_id": "$visa_status", "count": {"$sum": 1}}},
         {"$sort": {"count": -1}},
