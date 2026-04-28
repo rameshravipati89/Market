@@ -41,6 +41,22 @@ def extract_keywords(text: str) -> set[str]:
     return {t.lower().replace(" ", "").replace(".", "") for t in tokens}
 
 
+def _skill_names(raw) -> list[str]:
+    """Extract plain skill names from any of: list[str], list[{name, percent}],
+    comma-separated string, or empty/None. Tolerates legacy + new shape."""
+    if not raw:
+        return []
+    if isinstance(raw, str):
+        return [s.strip() for s in raw.split(",") if s.strip()]
+    out = []
+    for s in raw:
+        if isinstance(s, str) and s.strip():
+            out.append(s)
+        elif isinstance(s, dict) and s.get("name"):
+            out.append(str(s["name"]))
+    return out
+
+
 def score_candidate(candidate: dict, job_keywords: set[str]) -> tuple[int, list[str]]:
     """
     Return (score 0-100, skill_gaps).
@@ -50,11 +66,7 @@ def score_candidate(candidate: dict, job_keywords: set[str]) -> tuple[int, list[
     if not job_keywords:
         return 0, []
 
-    raw_skills = candidate.get("skills", [])
-    if isinstance(raw_skills, str):
-        raw_skills = [s.strip() for s in raw_skills.split(",")]
-
-    candidate_kw = extract_keywords(" ".join(raw_skills))
+    candidate_kw = extract_keywords(" ".join(_skill_names(candidate.get("skills", []))))
     candidate_kw |= extract_keywords(candidate.get("summary", ""))
 
     matched    = job_keywords & candidate_kw
@@ -101,8 +113,7 @@ async def compute_matches_for_mail(db, mail: dict, profile: str) -> list[dict]:
             "score":        score,
             "skill_gaps":   gaps,
             "matched_kw":   sorted(job_kw & extract_keywords(" ".join(
-                                cand.get("skills", []) if isinstance(cand.get("skills", []), list)
-                                else [cand.get("skills", "")]
+                                _skill_names(cand.get("skills", []))
                             ))),
             "updated_at":   datetime.now(timezone.utc),
         }

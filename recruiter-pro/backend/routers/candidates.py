@@ -34,9 +34,10 @@ async def list_candidates(
     filt: dict = {}
     if search:
         filt["$or"] = [
-            {"name":  {"$regex": search, "$options": "i"}},
-            {"email": {"$regex": search, "$options": "i"}},
-            {"skills": {"$regex": search, "$options": "i"}},
+            {"name":       {"$regex": search, "$options": "i"}},
+            {"email":      {"$regex": search, "$options": "i"}},
+            {"skills":     {"$regex": search, "$options": "i"}},   # legacy string skills
+            {"skills.name":{"$regex": search, "$options": "i"}},   # new {name, percent} skills
         ]
     if visa:
         filt["visa_status"] = {"$regex": visa, "$options": "i"}
