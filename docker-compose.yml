@@ -149,16 +149,21 @@ services:
     networks:
       - recruiter_net
 
-  # ── Cloudflare Tunnel — Public URL for RecruitIQ Pro ─────────────────────
+  # ── Cloudflare Tunnel — Named tunnel, permanent URLs at recruitiqpro.org ─
+  # Routes (configured in Cloudflare Zero Trust dashboard):
+  #   admin.recruitiqpro.org      → localadmin_frontend:80
+  #   recruiter.recruitiqpro.org  → recruiter_frontend:80
   cloudflare_tunnel:
     image: cloudflare/cloudflared:latest
     container_name: cloudflare_tunnel
     restart: unless-stopped
-    command: tunnel --no-autoupdate --url http://recruiter_frontend:80
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARED_TOKEN}
     depends_on:
       - recruiter_frontend
+      - localadmin_frontend
     networks:
       - recruiter_net
+      - adminnet
 
 # ---------------------------------------------------------------------------
 # Volumes
