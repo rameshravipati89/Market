@@ -42,29 +42,59 @@ async def dashboard_stats(db=Depends(database.get_db)):
         if isinstance(m.get("received_at"), datetime):
             m["received_at"] = m["received_at"].isoformat()
 
-    # Top matches — one row per candidate (their best score across all mails),
-    # excluding entries with no candidate name. Top 10 unique.
+    # Top matches — one row per candidate (their best score across all mails).
+    # Names + visa + availability are pulled fresh from the candidates collection
+    # so admin edits in local-admin show up immediately.
     top_matches_raw = await db.job_matches.aggregate([
-        {"$match": {
-            "score": {"$gte": 50},
-            "name":  {"$nin": [None, ""]},
-        }},
+        {"$match": {"score": {"$gte": 50}}},
         {"$sort":  {"score": -1}},
         {"$group": {
-            "_id":          "$candidate_id",
-            "name":         {"$first": "$name"},
-            "email":        {"$first": "$email"},
-            "score":        {"$first": "$score"},
-            "profile":      {"$first": "$profile"},
-            "skill_gaps":   {"$first": "$skill_gaps"},
-            "visa_status":  {"$first": "$visa_status"},
-            "availability": {"$first": "$availability"},
-            "mail_id":      {"$first": "$mail_id"},
+            "_id":        "$candidate_id",
+            "score":      {"$first": "$score"},
+            "profile":    {"$first": "$profile"},
+            "skill_gaps": {"$first": "$skill_gaps"},
+            "mail_id":    {"$first": "$mail_id"},
         }},
         {"$sort":  {"score": -1}},
-        {"$limit": 10},
+        {"$limit": 30},   # over-fetch; we'll filter by current candidate state below
     ]).to_list(None)
-    top_matches = [{k: v for k, v in m.items() if k != "_id"} for m in top_matches_raw]
+
+    # Hydrate with current candidate fields
+    from bson import ObjectId as _OID
+    cand_ids = []
+    for m in top_matches_raw:
+        try:
+            cand_ids.append(_OID(m["_id"]))
+        except Exception:
+            pass
+    cand_lookup = {}
+    if cand_ids:
+        async for c in db.candidates.find(
+            {"_id": {"$in": cand_ids}},
+            {"name": 1, "email": 1, "visa_status": 1, "availability": 1},
+        ):
+            cand_lookup[str(c["_id"])] = c
+
+    top_matches = []
+    for m in top_matches_raw:
+        c = cand_lookup.get(m["_id"])
+        if not c:
+            continue                         # candidate was deleted
+        name = (c.get("name") or "").strip()
+        if not name:
+            continue                         # skip nameless legacy records
+        top_matches.append({
+            "name":         name,
+            "email":        c.get("email") or "",
+            "score":        m["score"],
+            "profile":      m.get("profile"),
+            "skill_gaps":   m.get("skill_gaps", []),
+            "visa_status":  c.get("visa_status") or "Unknown",
+            "availability": c.get("availability") or "Unknown",
+            "mail_id":      m.get("mail_id"),
+        })
+        if len(top_matches) >= 10:
+            break
 
     # Profile mail counts
     profiles = await db.profiles.find({}, {"_id": 0, "name": 1, "color": 1}).to_list(None)
