@@ -81,6 +81,23 @@ function escHtml(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// Normalize a skill (string or {name, percent}) to its display name.
+// Tolerates legacy string shape AND the new object shape from local-admin.
+function skillName(s) {
+  if (!s) return '';
+  if (typeof s === 'string') return s;
+  if (typeof s === 'object' && s.name) return String(s.name);
+  return '';
+}
+
+// "Java", "Python 80%", or list of either — normalized for display.
+function skillLabel(s) {
+  if (typeof s === 'object' && s && s.name && typeof s.percent === 'number') {
+    return `${s.name} ${s.percent}%`;
+  }
+  return skillName(s);
+}
+
 // Open / close modal overlays
 function openModal(id)  { document.getElementById(id).classList.add('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }

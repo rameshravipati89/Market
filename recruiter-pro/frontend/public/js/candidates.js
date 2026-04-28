@@ -27,7 +27,10 @@ function renderCandidatesPage(candidates) {
     const av         = initials(c.name);
     const bg         = avatarColor(c.name);
     const skillsHtml = (c.skills || []).slice(0, 6)
-      .map(s => `<span class="skill-pill">${escHtml(s)}</span>`).join('');
+      .map(s => skillLabel(s))
+      .filter(Boolean)
+      .map(label => `<span class="skill-pill">${escHtml(label)}</span>`)
+      .join('');
 
     return `
       <div class="cand-page-card" onclick="openCandModal('${c.id}','${escHtml(c.name)}')">

@@ -61,7 +61,7 @@ function switchCandTab(tab) {
 function renderCandModalContent(c, skillProfiles, pipeEntry) {
   const av   = initials(c.name);
   const bg   = avatarColor(c.name);
-  const skls = (c.skills || []).map(s => `<span class="skill-pill">${escHtml(s)}</span>`).join('');
+  const skls = (c.skills || []).map(s => `<span class="skill-pill">${escHtml(skillLabel(s))}</span>`).join('');
   const id   = c.id || '';
 
   // ── Tab 1: Basic info ─────────────────────────────────────────────────────

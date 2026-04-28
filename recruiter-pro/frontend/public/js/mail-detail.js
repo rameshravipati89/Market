@@ -44,7 +44,7 @@ function renderMailDetail(mail) {
 
   const skills     = extractSkillsFromText(bodyRaw || subject);
   const skillsHtml = skills.length
-    ? skills.map(s => `<span class="skill-tag">${escHtml(s)}</span>`).join('')
+    ? skills.map(s => `<span class="skill-tag">${escHtml(skillLabel(s))}</span>`).join('')
     : '<span style="color:var(--muted);font-size:.8rem">No skills detected in body</span>';
 
   const candidatesHtml = candidates.length
