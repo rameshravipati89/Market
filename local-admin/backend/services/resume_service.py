@@ -55,6 +55,11 @@ async def upsert(db, parsed: dict, raw_text: str, filename: str, parser: str) ->
         "parser_used":   parser,
         "updated_at":    now,
     }
+    # The unique idx_email index is `sparse`, which only skips docs that LACK
+    # the field — `email: null` still triggers a duplicate-key collision.
+    # Strip null email so the index treats the doc as truly emailless.
+    if doc.get("email") in (None, ""):
+        doc.pop("email", None)
 
     if parsed.get("email"):
         key = {"email": parsed["email"]}
