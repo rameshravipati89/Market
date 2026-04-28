@@ -129,6 +129,9 @@ services:
     restart: unless-stopped
     environment:
       <<: *mongo-env
+      ADMIN_USERNAME: "admin"
+      ADMIN_PASSWORD: "Biriyani@123"
+      JWT_SECRET:     "local-admin-jwt-secret-2024"
     depends_on:
       mongodb:
         condition: service_healthy

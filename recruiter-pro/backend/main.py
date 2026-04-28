@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 import database
-from routers import candidates, dashboard, mails, pipeline, profiles, skill_profiles
+from routers import auth, candidates, dashboard, mails, pipeline, profiles, skill_profiles
 
 load_dotenv()
 
@@ -51,6 +51,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router)
 app.include_router(dashboard.router)
 app.include_router(profiles.router)
 app.include_router(mails.router)

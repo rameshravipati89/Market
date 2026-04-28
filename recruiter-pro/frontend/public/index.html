@@ -40,6 +40,8 @@
   </div>
 
   <button class="btn-export" onclick="exportCSV()" style="margin-left:8px">&#8659; Export CSV</button>
+
+  <div id="userBadge" style="display:flex;align-items:center;margin-left:8px"></div>
 </header>
 
 <!-- ═══════════════════════════ WORKSPACE ════════════════════════════════════ -->
@@ -301,6 +303,7 @@
   3. Feature modules — each handles one section
   4. app.js      — wires everything together and calls init()
 -->
+<script src="/js/auth.js"></script>
 <script src="/js/state.js"></script>
 <script src="/js/utils.js"></script>
 <script src="/js/mail-list.js"></script>

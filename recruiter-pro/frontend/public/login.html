@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>RecruitIQ Pro — Sign in</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+    color: #f1f5f9;
+  }
+  .card {
+    background: #fff; color: #1a1a2e; padding: 32px 36px; border-radius: 12px;
+    width: 380px; box-shadow: 0 20px 60px rgba(0,0,0,.3);
+  }
+  .logo { font-size: 22px; font-weight: 700; color: #1565C0; margin-bottom: 4px; }
+  .logo span { color: #6366f1; }
+  .sub { font-size: 13px; color: #6b7280; margin-bottom: 24px; }
+  label { display: block; font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 6px; }
+  input {
+    width: 100%; padding: 10px 12px; font-size: 14px;
+    border: 1px solid #e5e7eb; border-radius: 8px; outline: none;
+    transition: border-color .15s;
+  }
+  input:focus { border-color: #6366f1; }
+  .field { margin-bottom: 16px; }
+  button {
+    width: 100%; padding: 11px; font-size: 14px; font-weight: 600;
+    background: #6366f1; color: #fff; border: none; border-radius: 8px;
+    cursor: pointer; transition: background .15s;
+  }
+  button:hover { background: #4f46e5; }
+  button:disabled { background: #9ca3af; cursor: not-allowed; }
+  .err {
+    background: #fef2f2; border: 1px solid #fecaca; color: #991b1b;
+    padding: 10px 12px; border-radius: 8px; font-size: 13px; margin-bottom: 14px;
+  }
+  .hint { font-size: 11px; color: #9ca3af; margin-top: 14px; text-align: center; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">RecruitIQ <span>PRO</span></div>
+    <div class="sub">Sign in with your recruiter email or admin login.</div>
+    <div id="err" class="err" style="display:none"></div>
+    <form id="loginForm">
+      <div class="field">
+        <label for="username">Email or username</label>
+        <input id="username" name="username" type="text" autocomplete="username" required autofocus/>
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required/>
+      </div>
+      <button type="submit" id="submitBtn">Sign in</button>
+    </form>
+    <div class="hint">Recruiters: use the email + password configured in Mail Injection.</div>
+  </div>
+
+<script>
+  (function () {
+    if (localStorage.getItem("riq_token")) location.replace("/");
+  })();
+
+  const form = document.getElementById("loginForm");
+  const btn  = document.getElementById("submitBtn");
+  const err  = document.getElementById("err");
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    err.style.display = "none";
+    btn.disabled = true;
+    btn.textContent = "Signing in…";
+    try {
+      const r = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: form.username.value.trim(),
+          password: form.password.value,
+        }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.detail || "Invalid email or password");
+      localStorage.setItem("riq_token", data.token);
+      localStorage.setItem("riq_role",  data.role);
+      if (data.email) localStorage.setItem("riq_email", data.email);
+      else            localStorage.removeItem("riq_email");
+      location.replace("/");
+    } catch (ex) {
+      err.textContent = ex.message;
+      err.style.display = "block";
+      btn.disabled = false;
+      btn.textContent = "Sign in";
+    }
+  });
+</script>
+</body>
+</html>

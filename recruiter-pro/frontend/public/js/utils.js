@@ -2,9 +2,14 @@
 // UTILITIES  — shared helper functions used across all modules
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Fetch JSON from the backend; throws on non-2xx
-async function api(path) {
-  const r = await fetch(path);
+// Fetch JSON from the backend; throws on non-2xx.
+// Sends Authorization header from localStorage; on 401, kicks user back to login.
+async function api(path, opts = {}) {
+  const headers = { ...(opts.headers || {}) };
+  const token = getToken();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const r = await fetch(path, { ...opts, headers });
+  if (r.status === 401 || r.status === 403) { logout(); throw new Error("Unauthorized"); }
   if (!r.ok) throw new Error(`API ${path} → ${r.status}`);
   return r.json();
 }
