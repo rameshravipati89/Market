@@ -42,12 +42,29 @@ async def dashboard_stats(db=Depends(database.get_db)):
         if isinstance(m.get("received_at"), datetime):
             m["received_at"] = m["received_at"].isoformat()
 
-    # Top matches overall (top 10 by score)
-    top_matches = await db.job_matches.find(
-        {"score": {"$gte": 50}},
-        {"_id": 0, "name": 1, "email": 1, "score": 1, "profile": 1,
-         "skill_gaps": 1, "visa_status": 1, "availability": 1, "mail_id": 1}
-    ).sort("score", -1).limit(10).to_list(None)
+    # Top matches — one row per candidate (their best score across all mails),
+    # excluding entries with no candidate name. Top 10 unique.
+    top_matches_raw = await db.job_matches.aggregate([
+        {"$match": {
+            "score": {"$gte": 50},
+            "name":  {"$nin": [None, ""]},
+        }},
+        {"$sort":  {"score": -1}},
+        {"$group": {
+            "_id":          "$candidate_id",
+            "name":         {"$first": "$name"},
+            "email":        {"$first": "$email"},
+            "score":        {"$first": "$score"},
+            "profile":      {"$first": "$profile"},
+            "skill_gaps":   {"$first": "$skill_gaps"},
+            "visa_status":  {"$first": "$visa_status"},
+            "availability": {"$first": "$availability"},
+            "mail_id":      {"$first": "$mail_id"},
+        }},
+        {"$sort":  {"score": -1}},
+        {"$limit": 10},
+    ]).to_list(None)
+    top_matches = [{k: v for k, v in m.items() if k != "_id"} for m in top_matches_raw]
 
     # Profile mail counts
     profiles = await db.profiles.find({}, {"_id": 0, "name": 1, "color": 1}).to_list(None)
