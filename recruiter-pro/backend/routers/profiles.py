@@ -10,15 +10,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 import database
-from routers.auth import get_current_user
 from services.matcher import run_full_profile_match
 
 log = logging.getLogger(__name__)
-router = APIRouter(
-    prefix="/api/profiles",
-    tags=["profiles"],
-    dependencies=[Depends(get_current_user)],
-)
+router = APIRouter(prefix="/api/profiles", tags=["profiles"])
 
 DEFAULT_PROFILES = [
     {

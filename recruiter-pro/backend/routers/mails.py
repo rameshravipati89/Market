@@ -9,17 +9,10 @@ from bson import ObjectId
 from fastapi import APIRouter, Depends, Query, HTTPException
 
 import database
-from routers.auth import get_current_user
 from services.matcher import compute_matches_for_mail, get_matches_for_mail
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/mails", tags=["mails"])
-
-
-def _scope(user: dict) -> dict:
-    """Return Mongo filter that limits results to the user's mailbox.
-    Admin sees everything; recruiter sees only mails fetched for their email."""
-    return {} if user["role"] == "admin" else {"fetched_for": user["email"]}
 
 
 def _serialize(doc: dict) -> dict:
@@ -35,16 +28,13 @@ async def list_mails(
     limit:   int = Query(50, le=200),
     skip:    int = Query(0),
     db=Depends(database.get_db),
-    user: dict = Depends(get_current_user),
 ):
     """
     Return mail list sorted newest-first.
     If ?profile= is given, attach top-3 candidate scores for each mail.
-    Recruiters see only mails from their own mailbox; admins see everything.
     """
-    scope = _scope(user)
     mails = await db.mail_events.find(
-        scope,
+        {},
         {"_id": 1, "subject": 1, "from_email": 1, "point_of_contact": 1,
          "received_at": 1, "status": 1, "fetched_for": 1,
          "job_title": 1, "work_type": 1, "job_type": 1,
@@ -62,7 +52,7 @@ async def list_mails(
             doc["top_candidates"] = matches
         result.append(doc)
 
-    total = await db.mail_events.count_documents(scope)
+    total = await db.mail_events.count_documents({})
     return {"total": total, "mails": result}
 
 
@@ -71,7 +61,6 @@ async def get_mail(
     mail_id: str,
     profile: str = Query(None),
     db=Depends(database.get_db),
-    user: dict = Depends(get_current_user),
 ):
     """
     Full mail detail with ALL candidate scores (or re-compute if none stored).
@@ -81,7 +70,7 @@ async def get_mail(
     except Exception:
         raise HTTPException(400, "Invalid mail ID")
 
-    mail = await db.mail_events.find_one({"_id": oid, **_scope(user)})
+    mail = await db.mail_events.find_one({"_id": oid})
     if not mail:
         raise HTTPException(404, "Mail not found")
 
@@ -103,7 +92,6 @@ async def trigger_match(
     mail_id: str,
     profile: str = Query(...),
     db=Depends(database.get_db),
-    user: dict = Depends(get_current_user),
 ):
     """Force re-score this mail for a given profile."""
     try:
@@ -111,7 +99,7 @@ async def trigger_match(
     except Exception:
         raise HTTPException(400, "Invalid mail ID")
 
-    mail = await db.mail_events.find_one({"_id": oid, **_scope(user)})
+    mail = await db.mail_events.find_one({"_id": oid})
     if not mail:
         raise HTTPException(404, "Mail not found")
 
@@ -120,17 +108,13 @@ async def trigger_match(
 
 
 @router.delete("/{mail_id}")
-async def delete_mail(
-    mail_id: str,
-    db=Depends(database.get_db),
-    user: dict = Depends(get_current_user),
-):
+async def delete_mail(mail_id: str, db=Depends(database.get_db)):
     try:
         oid = ObjectId(mail_id)
     except Exception:
         raise HTTPException(400, "Invalid mail ID")
 
-    result = await db.mail_events.delete_one({"_id": oid, **_scope(user)})
+    result = await db.mail_events.delete_one({"_id": oid})
     if result.deleted_count == 0:
         raise HTTPException(404, "Mail not found")
     await db.job_matches.delete_many({"mail_id": mail_id})

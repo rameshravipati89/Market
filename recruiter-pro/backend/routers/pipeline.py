@@ -23,14 +23,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 import database
-from routers.auth import get_current_user
 
 log = logging.getLogger(__name__)
-router = APIRouter(
-    prefix="/api/pipeline",
-    tags=["pipeline"],
-    dependencies=[Depends(get_current_user)],
-)
+router = APIRouter(prefix="/api/pipeline", tags=["pipeline"])
 
 STAGES = ["New Lead", "Screening", "Interview", "Offer", "Placed", "Rejected"]
 ROUND_TYPES = ["HR Screen", "Technical", "Manager", "Client", "HR Final", "Other"]

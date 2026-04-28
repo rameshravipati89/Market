@@ -14,14 +14,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 import database
-from routers.auth import get_current_user
 
 log = logging.getLogger(__name__)
-router = APIRouter(
-    prefix="/api/skill-profiles",
-    tags=["skill-profiles"],
-    dependencies=[Depends(get_current_user)],
-)
+router = APIRouter(prefix="/api/skill-profiles", tags=["skill-profiles"])
 
 
 def _oid(s: str) -> ObjectId:

@@ -8,30 +8,21 @@ from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends
 
 import database
-from routers.auth import get_current_user
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 
-def _scope(user: dict) -> dict:
-    return {} if user["role"] == "admin" else {"fetched_for": user["email"]}
-
-
 @router.get("/stats")
-async def dashboard_stats(
-    db=Depends(database.get_db),
-    user: dict = Depends(get_current_user),
-):
+async def dashboard_stats(db=Depends(database.get_db)):
     now   = datetime.now(timezone.utc)
     today = now.replace(hour=0, minute=0, second=0, microsecond=0)
     week  = now - timedelta(days=7)
 
-    scope = _scope(user)
-    total_mails      = await db.mail_events.count_documents(scope)
+    total_mails      = await db.mail_events.count_documents({})
     total_candidates = await db.candidates.count_documents({})
-    mails_today      = await db.mail_events.count_documents({**scope, "received_at": {"$gte": today}})
-    mails_week       = await db.mail_events.count_documents({**scope, "received_at": {"$gte": week}})
+    mails_today      = await db.mail_events.count_documents({"received_at": {"$gte": today}})
+    mails_week       = await db.mail_events.count_documents({"received_at": {"$gte": week}})
 
     # Pipeline stage counts
     pipeline_entries = await db.pipeline.find({}, {"stage": 1, "_id": 0}).to_list(None)
@@ -40,9 +31,9 @@ async def dashboard_stats(
         s = e.get("stage", "Unknown")
         stage_counts[s] = stage_counts.get(s, 0) + 1
 
-    # Recent mails (last 10) — scoped to user
+    # Recent mails (last 10)
     recent_mails = await db.mail_events.find(
-        scope,
+        {},
         {"_id": 1, "subject": 1, "from_email": 1, "point_of_contact": 1, "received_at": 1}
     ).sort("received_at", -1).limit(10).to_list(None)
 
@@ -61,13 +52,13 @@ async def dashboard_stats(
     # Profile mail counts
     profiles = await db.profiles.find({}, {"_id": 0, "name": 1, "color": 1}).to_list(None)
 
-    # Mail volume per day (last 14 days) — scoped to user
+    # Mail volume per day (last 14 days)
     daily = []
     for i in range(13, -1, -1):
         day_start = today - timedelta(days=i)
         day_end   = day_start + timedelta(days=1)
         count = await db.mail_events.count_documents(
-            {**scope, "received_at": {"$gte": day_start, "$lt": day_end}}
+            {"received_at": {"$gte": day_start, "$lt": day_end}}
         )
         daily.append({
             "date":  day_start.strftime("%b %d"),
@@ -104,10 +95,7 @@ async def dashboard_stats(
 
 
 @router.get("/analytics")
-async def analytics(
-    db=Depends(database.get_db),
-    _user: dict = Depends(get_current_user),
-):
+async def analytics(db=Depends(database.get_db)):
     """Deeper analytics for the Analytics tab."""
     # Top skills in demand (from job emails)
     # Approximate: aggregate skill_gaps across all matches → skills recruiter should target
