@@ -13,13 +13,23 @@ function fmt(date) {
   });
 }
 
-function SkillTag({ label }) {
+function SkillTag({ label, percent }) {
   return (
     <span style={{
       background: "#ede9fe", color: "#5b21b6",
       fontSize: 11, padding: "2px 7px", borderRadius: 4, display: "inline-block", margin: "1px 2px",
-    }}>{label}</span>
+    }}>
+      {label}{typeof percent === "number" ? ` ${percent}%` : ""}
+    </span>
   );
+}
+
+// Normalize legacy string-skills to {name, percent} so the UI can rely on the new shape.
+function normalizeSkills(skills) {
+  if (!Array.isArray(skills)) return [];
+  return skills
+    .map((s) => typeof s === "string" ? { name: s, percent: 100 } : s)
+    .filter((s) => s && s.name);
 }
 
 function Badge({ text, color }) {
@@ -91,23 +101,85 @@ function QueueItem({ item }) {
   );
 }
 
+const VISA_OPTS  = ["H1B","GC","USC","OPT","CPT","TN","EAD","Unknown"];
+const AVAIL_OPTS = ["Immediate","2 weeks","1 month","Unknown"];
+
+const TEXT_FIELDS = [
+  ["Name",             "name",             "text",     "Full name"],
+  ["Email",            "email",            "email",    "name@example.com"],
+  ["Phone",            "phone",            "tel",      "+1 555-555-5555"],
+  ["Location",         "location",         "text",     "City, State"],
+  ["Current Title",    "current_title",    "text",     "Senior Java Developer"],
+  ["Current Employer", "current_employer", "text",     "Company name"],
+  ["Experience (yrs)", "total_experience_years", "number", "e.g. 8"],
+  ["Expected Rate",    "expected_rate",    "text",     "$75/hr"],
+  ["LinkedIn",         "linkedin",         "url",      "https://linkedin.com/in/…"],
+  ["Work Auth",        "work_authorization","text",    "Authorization details"],
+];
+
 function CandidateModal({ candidate, onClose, onDeleted, onUpdated }) {
   const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState({
-    expected_rate: candidate.expected_rate || "",
-    visa_status: candidate.visa_status || "Unknown",
-    availability: candidate.availability || "Unknown",
-    current_title: candidate.current_title || "",
-    location: candidate.location || "",
-  });
+  const [form, setForm] = useState(() => ({
+    name:                   candidate.name                   || "",
+    email:                  candidate.email                  || "",
+    phone:                  candidate.phone                  || "",
+    location:               candidate.location               || "",
+    current_title:          candidate.current_title          || "",
+    current_employer:       candidate.current_employer       || "",
+    total_experience_years: candidate.total_experience_years ?? "",
+    expected_rate:          candidate.expected_rate          || "",
+    linkedin:               candidate.linkedin               || "",
+    work_authorization:     candidate.work_authorization     || "",
+    visa_status:            candidate.visa_status            || "Unknown",
+    availability:           candidate.availability           || "Unknown",
+    summary:                candidate.summary                || "",
+    skills:                 normalizeSkills(candidate.skills),
+  }));
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  const skills = normalizeSkills(candidate.skills);
+  const overallMatch =
+    typeof candidate.overall_match === "number"
+      ? candidate.overall_match
+      : skills.length
+        ? Math.round(skills.reduce((s, x) => s + x.percent, 0) / skills.length)
+        : 0;
+
+  function setField(k, v) { setForm((f) => ({ ...f, [k]: v })); }
+
+  function setSkillField(idx, key, value) {
+    setForm((f) => {
+      const next = [...f.skills];
+      next[idx] = { ...next[idx], [key]: value };
+      return { ...f, skills: next };
+    });
+  }
+  function addSkill()      { setForm((f) => ({ ...f, skills: [...f.skills, { name: "", percent: 80 }] })); }
+  function removeSkill(i)  { setForm((f) => ({ ...f, skills: f.skills.filter((_, idx) => idx !== i) })); }
 
   async function handleSave() {
     setSaving(true);
     try {
-      const updates = {};
-      Object.entries(form).forEach(([k, v]) => { if (v) updates[k] = v; });
+      // Send everything that's been filled (incl. empty string → cleared).
+      // Backend strips None; frontend sends "" through as cleared.
+      const updates = { ...form };
+      // Coerce experience to int or null
+      if (updates.total_experience_years === "" || updates.total_experience_years === null) {
+        delete updates.total_experience_years;
+      } else {
+        const n = parseInt(updates.total_experience_years, 10);
+        updates.total_experience_years = isNaN(n) ? undefined : n;
+        if (updates.total_experience_years === undefined) delete updates.total_experience_years;
+      }
+      // Clean skills: drop empties; clamp percent
+      updates.skills = updates.skills
+        .filter((s) => s.name && s.name.trim())
+        .map((s) => ({
+          name:    s.name.trim(),
+          percent: Math.max(0, Math.min(100, parseInt(s.percent, 10) || 0)),
+        }));
+
       const r = await authFetch(`${API}/candidates/${candidate.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -136,11 +208,21 @@ function CandidateModal({ candidate, onClose, onDeleted, onUpdated }) {
     }
   }
 
+  const inputStyle = { width: "100%", border: "1px solid #e5e7eb", borderRadius: 8, padding: "8px 12px", fontSize: 14, outline: "none" };
+  const labelStyle = { fontSize: 12, color: "#6b7280", display: "block", marginBottom: 4 };
+
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal">
         <div className="modal-header">
-          <span className="modal-title">{candidate.name || "Candidate"}</span>
+          <span className="modal-title">
+            {candidate.name || "Candidate"}
+            {skills.length > 0 && (
+              <span style={{ marginLeft: 10, fontSize: 12, fontWeight: 600, color: "#6366f1", background: "#eef2ff", padding: "2px 8px", borderRadius: 12 }}>
+                Match {overallMatch}%
+              </span>
+            )}
+          </span>
           <button className="modal-close" onClick={onClose}>✕</button>
         </div>
         <div className="modal-body">
@@ -148,14 +230,18 @@ function CandidateModal({ candidate, onClose, onDeleted, onUpdated }) {
             <>
               <div className="detail-grid">
                 {[
-                  ["Email",        candidate.email],
-                  ["Phone",        candidate.phone],
-                  ["Location",     candidate.location],
-                  ["Visa",         candidate.visa_status],
-                  ["Availability", candidate.availability],
-                  ["Rate",         candidate.expected_rate],
-                  ["Title",        candidate.current_title],
-                  ["Uploaded",     fmt(candidate.uploaded_at)],
+                  ["Email",          candidate.email],
+                  ["Phone",          candidate.phone],
+                  ["Location",       candidate.location],
+                  ["Title",          candidate.current_title],
+                  ["Employer",       candidate.current_employer],
+                  ["Experience",     candidate.total_experience_years != null ? `${candidate.total_experience_years} yrs` : null],
+                  ["Visa",           candidate.visa_status],
+                  ["Availability",   candidate.availability],
+                  ["Rate",           candidate.expected_rate],
+                  ["LinkedIn",       candidate.linkedin],
+                  ["Work Auth",      candidate.work_authorization],
+                  ["Uploaded",       fmt(candidate.uploaded_at)],
                 ].map(([label, value]) => (
                   <div key={label} className="detail-field">
                     <span className="detail-label">{label}</span>
@@ -163,10 +249,10 @@ function CandidateModal({ candidate, onClose, onDeleted, onUpdated }) {
                   </div>
                 ))}
               </div>
-              {candidate.skills?.length > 0 && (
+              {skills.length > 0 && (
                 <div>
                   <div className="detail-label" style={{ marginBottom: 6 }}>Skills</div>
-                  <div>{candidate.skills.map((s) => <SkillTag key={s} label={s} />)}</div>
+                  <div>{skills.map((s) => <SkillTag key={s.name} label={s.name} percent={s.percent} />)}</div>
                 </div>
               )}
               {candidate.summary && (
@@ -178,37 +264,96 @@ function CandidateModal({ candidate, onClose, onDeleted, onUpdated }) {
             </>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              {[
-                ["Expected Rate", "expected_rate", "text", "e.g. $75/hr"],
-                ["Current Title", "current_title", "text", "e.g. Senior Java Developer"],
-                ["Location",      "location",      "text", "e.g. Dallas, TX"],
-              ].map(([label, key, type, placeholder]) => (
+              {TEXT_FIELDS.map(([label, key, type, placeholder]) => (
                 <div key={key}>
-                  <label style={{ fontSize: 12, color: "#6b7280", display: "block", marginBottom: 4 }}>{label}</label>
+                  <label style={labelStyle}>{label}</label>
                   <input
                     type={type}
                     placeholder={placeholder}
-                    value={form[key]}
-                    onChange={(e) => setForm({ ...form, [key]: e.target.value })}
-                    style={{ width: "100%", border: "1px solid #e5e7eb", borderRadius: 8, padding: "8px 12px", fontSize: 14, outline: "none" }}
+                    value={form[key] ?? ""}
+                    onChange={(e) => setField(key, e.target.value)}
+                    style={inputStyle}
                   />
                 </div>
               ))}
               {[
-                ["Visa Status",  "visa_status",  ["H1B","GC","USC","OPT","CPT","TN","EAD","Unknown"]],
-                ["Availability", "availability", ["Immediate","2 weeks","1 month","Unknown"]],
+                ["Visa Status",  "visa_status",  VISA_OPTS],
+                ["Availability", "availability", AVAIL_OPTS],
               ].map(([label, key, opts]) => (
                 <div key={key}>
-                  <label style={{ fontSize: 12, color: "#6b7280", display: "block", marginBottom: 4 }}>{label}</label>
+                  <label style={labelStyle}>{label}</label>
                   <select
                     value={form[key]}
-                    onChange={(e) => setForm({ ...form, [key]: e.target.value })}
-                    style={{ width: "100%", border: "1px solid #e5e7eb", borderRadius: 8, padding: "8px 12px", fontSize: 14, outline: "none", background: "#fff" }}
+                    onChange={(e) => setField(key, e.target.value)}
+                    style={{ ...inputStyle, background: "#fff" }}
                   >
                     {opts.map((o) => <option key={o}>{o}</option>)}
                   </select>
                 </div>
               ))}
+              <div>
+                <label style={labelStyle}>Summary</label>
+                <textarea
+                  rows={3}
+                  value={form.summary}
+                  onChange={(e) => setField("summary", e.target.value)}
+                  style={{ ...inputStyle, fontFamily: "inherit", resize: "vertical" }}
+                />
+              </div>
+              {/* Skills editor */}
+              <div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                  <label style={labelStyle}>
+                    Skills
+                    {form.skills.length > 0 && (
+                      <span style={{ marginLeft: 6, fontSize: 11, color: "#6366f1" }}>
+                        avg {Math.round(form.skills.reduce((s, x) => s + (parseInt(x.percent, 10) || 0), 0) / form.skills.length)}%
+                      </span>
+                    )}
+                  </label>
+                  <button type="button" className="btn btn-ghost" style={{ fontSize: 12, padding: "2px 8px" }} onClick={addSkill}>
+                    + Add skill
+                  </button>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {form.skills.length === 0 && (
+                    <div style={{ fontSize: 12, color: "#9ca3af", fontStyle: "italic" }}>No skills yet — click "+ Add skill"</div>
+                  )}
+                  {form.skills.map((s, i) => (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <input
+                        type="text"
+                        placeholder="Skill name"
+                        value={s.name}
+                        onChange={(e) => setSkillField(i, "name", e.target.value)}
+                        style={{ ...inputStyle, flex: 1 }}
+                      />
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={s.percent}
+                        onChange={(e) => setSkillField(i, "percent", parseInt(e.target.value, 10))}
+                        style={{ flex: 1 }}
+                      />
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={s.percent}
+                        onChange={(e) => setSkillField(i, "percent", e.target.value)}
+                        style={{ ...inputStyle, width: 64 }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeSkill(i)}
+                        style={{ background: "none", border: "none", color: "#9ca3af", cursor: "pointer", fontSize: 18, padding: 4 }}
+                        title="Remove skill"
+                      >✕</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -483,8 +628,12 @@ export default function ResumeUpload() {
                         <td style={{ padding: "10px 14px", fontWeight: 600, color: "#1a1a2e" }}>{c.name || "—"}</td>
                         <td style={{ padding: "10px 14px", color: "#6b7280", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.current_title || "—"}</td>
                         <td style={{ padding: "10px 14px", maxWidth: 200 }}>
-                          {(c.skills || []).slice(0, 4).map((s) => <SkillTag key={s} label={s} />)}
-                          {(c.skills || []).length > 4 && <span style={{ fontSize: 11, color: "#9ca3af" }}> +{c.skills.length - 4}</span>}
+                          {normalizeSkills(c.skills).slice(0, 4).map((s) => (
+                            <SkillTag key={s.name} label={s.name} percent={s.percent} />
+                          ))}
+                          {normalizeSkills(c.skills).length > 4 && (
+                            <span style={{ fontSize: 11, color: "#9ca3af" }}> +{normalizeSkills(c.skills).length - 4}</span>
+                          )}
                         </td>
                         <td style={{ padding: "10px 14px" }}><Badge text={c.visa_status || "Unknown"} color={visaColor(c.visa_status)} /></td>
                         <td style={{ padding: "10px 14px", color: "#374151", whiteSpace: "nowrap" }}>{c.expected_rate || "—"}</td>

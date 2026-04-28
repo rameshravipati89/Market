@@ -39,7 +39,7 @@ def parse(text: str) -> dict:
             name = line
             break
 
-    skills = [s for s in _COMMON_SKILLS
+    skills = [{"name": s, "percent": 100} for s in _COMMON_SKILLS
               if re.search(rf"\b{re.escape(s)}\b", text, re.IGNORECASE)]
 
     visa = "Unknown"
@@ -69,7 +69,7 @@ def parse(text: str) -> dict:
         "current_title":          None,
         "total_experience_years": int(exp_m.group(1)) if exp_m else None,
         "skills":                 skills,
-        "primary_skills":         skills[:5],
+        "primary_skills":         [s["name"] for s in skills[:5]],
         "visa_status":            visa,
         "work_authorization":     None,
         "availability":           avail,

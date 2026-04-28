@@ -21,8 +21,29 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/resume")
 
 
+def _normalize_skills(skills) -> list[dict]:
+    """Backward-compat: legacy records stored skills as strings."""
+    if not skills:
+        return []
+    out = []
+    for s in skills:
+        if isinstance(s, str):
+            out.append({"name": s, "percent": 100})
+        elif isinstance(s, dict) and s.get("name"):
+            out.append({
+                "name":    s["name"],
+                "percent": int(s.get("percent", 100)),
+            })
+    return out
+
+
 def _serialize(doc: dict) -> dict:
     doc["id"] = str(doc.pop("_id"))
+    if "skills" in doc:
+        doc["skills"] = _normalize_skills(doc["skills"])
+        if "overall_match" not in doc:
+            vals = [s["percent"] for s in doc["skills"]]
+            doc["overall_match"] = round(sum(vals) / len(vals)) if vals else 0
     for k, v in list(doc.items()):
         if isinstance(v, datetime):
             doc[k] = v.isoformat()
@@ -130,6 +151,9 @@ async def update_candidate(
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     if not updates:
         raise HTTPException(400, "Nothing to update")
+    if "skills" in updates:
+        vals = [s["percent"] for s in updates["skills"]]
+        updates["overall_match"] = round(sum(vals) / len(vals)) if vals else 0
     updates["updated_at"] = datetime.now(timezone.utc)
     result = await db.candidates.update_one(
         {"_id": _oid(candidate_id)}, {"$set": updates}
@@ -155,10 +179,15 @@ async def resume_stats(db=Depends(get_db), _=Depends(get_current_user)):
         {"$group": {"_id": "$visa_status", "count": {"$sum": 1}}},
         {"$sort": {"count": -1}},
     ]
+    # Skills may be stored as strings (legacy) or {name, percent} (new).
+    # $ifNull handles legacy: groups by name if present, else by the string.
     skills_pipeline = [
         {"$unwind": "$skills"},
-        {"$group": {"_id": "$skills", "count": {"$sum": 1}}},
-        {"$sort": {"count": -1}},
+        {"$group": {
+            "_id":   {"$ifNull": ["$skills.name", "$skills"]},
+            "count": {"$sum": 1},
+        }},
+        {"$sort":  {"count": -1}},
         {"$limit": 15},
     ]
     avail_pipeline = [

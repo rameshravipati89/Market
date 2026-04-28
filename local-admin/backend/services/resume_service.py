@@ -32,6 +32,14 @@ def parse(resume_text: str) -> tuple[dict, str]:
     return regex_parser.parse(resume_text), "regex"
 
 
+def _overall_match(skills) -> int:
+    """Average of skill percents (0-100). 0 if no skills."""
+    if not skills:
+        return 0
+    vals = [s.get("percent", 0) for s in skills if isinstance(s, dict)]
+    return round(sum(vals) / len(vals)) if vals else 0
+
+
 async def upsert(db, parsed: dict, raw_text: str, filename: str, parser: str) -> str:
     """
     Upsert candidate into MongoDB.
@@ -41,10 +49,11 @@ async def upsert(db, parsed: dict, raw_text: str, filename: str, parser: str) ->
     now = datetime.now(timezone.utc)
     doc = {
         **parsed,
-        "raw_text":    raw_text,
-        "filename":    filename,
-        "parser_used": parser,
-        "updated_at":  now,
+        "overall_match": _overall_match(parsed.get("skills")),
+        "raw_text":      raw_text,
+        "filename":      filename,
+        "parser_used":   parser,
+        "updated_at":    now,
     }
 
     if parsed.get("email"):

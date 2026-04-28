@@ -34,10 +34,19 @@ async def _create_indexes() -> None:
         [("email", pymongo.ASCENDING)],
         name="idx_email", unique=True, sparse=True
     )
-    await _db.candidates.create_index(
-        [("name", pymongo.TEXT), ("skills", pymongo.TEXT)],
-        name="idx_text_search"
-    )
+    # Text search: covers `skills.name` (new schema) — drop legacy index keyed
+    # on `skills` (string) if present so we can recreate with the new spec.
+    try:
+        await _db.candidates.create_index(
+            [("name", pymongo.TEXT), ("skills.name", pymongo.TEXT)],
+            name="idx_text_search"
+        )
+    except pymongo.errors.OperationFailure:
+        await _db.candidates.drop_index("idx_text_search")
+        await _db.candidates.create_index(
+            [("name", pymongo.TEXT), ("skills.name", pymongo.TEXT)],
+            name="idx_text_search"
+        )
     await _db.candidates.create_index(
         [("visa_status", pymongo.ASCENDING)], name="idx_visa"
     )
