@@ -32,14 +32,14 @@ secretGenerator:
 # ── Image tags — updated automatically by GitHub Actions on deploy-RR ─────────
 images:
 - name: ghcr.io/rameshravipati89/market-localadmin-api
-  newTag: 5ef1f8af
+  newTag: aaac0ddd
 - name: ghcr.io/rameshravipati89/market-localadmin-frontend
-  newTag: 5ef1f8af
+  newTag: aaac0ddd
 - name: ghcr.io/rameshravipati89/market-mail-injector
-  newTag: 5ef1f8af
+  newTag: aaac0ddd
 - name: ghcr.io/rameshravipati89/market-mailclean
-  newTag: 5ef1f8af
+  newTag: aaac0ddd
 - name: ghcr.io/rameshravipati89/market-recruiter-backend
-  newTag: 5ef1f8af
+  newTag: aaac0ddd
 - name: ghcr.io/rameshravipati89/market-recruiter-frontend
-  newTag: 5ef1f8af
+  newTag: aaac0ddd
