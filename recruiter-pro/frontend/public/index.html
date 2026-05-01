@@ -29,13 +29,13 @@
     <button onclick="switchMainTab('analytics')"  id="navAnaly">&#128200; Analytics</button>
   </div>
 
-  <!-- Profile selector dropdown -->
+  <!-- Candidate selector dropdown -->
   <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;margin-left:8px">
-    <span style="color:rgba(255,255,255,.6);font-size:.75rem;white-space:nowrap">Score for:</span>
-    <select id="profileSelect" onchange="loadProfile(this.value)"
+    <span style="color:rgba(255,255,255,.6);font-size:.75rem;white-space:nowrap">Candidate:</span>
+    <select id="candidateSelect" onchange="loadByCandidate(this.value)"
       style="padding:5px 10px;border-radius:6px;border:1px solid rgba(255,255,255,.25);font-size:.8rem;
-             background:rgba(255,255,255,.12);color:#fff;cursor:pointer;outline:none;min-width:140px">
-      <option value="" style="color:#000">— select profile —</option>
+             background:rgba(255,255,255,.12);color:#fff;cursor:pointer;outline:none;min-width:160px">
+      <option value="" style="color:#000">— select candidate —</option>
     </select>
   </div>
 

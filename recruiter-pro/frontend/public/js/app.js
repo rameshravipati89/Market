@@ -32,37 +32,40 @@ function switchMainTab(tab) {
   if (TAB_MAP[tab].load) TAB_MAP[tab].load();
 }
 
-// Populate the profile dropdown in the top bar
-function renderProfilePills() {
-  const sel = document.getElementById('profileSelect');
+// Populate the candidate dropdown in the top bar
+function renderCandidateDropdown() {
+  const sel = document.getElementById('candidateSelect');
   if (!sel) return;
-  // Keep the placeholder option, add one option per profile
-  sel.innerHTML = '<option value="" style="color:#000">— select profile —</option>' +
-    state.profiles.map(p =>
-      `<option value="${escHtml(p.name)}" style="color:#000">${escHtml(p.name)}</option>`
+  sel.innerHTML = '<option value="" style="color:#000">— select candidate —</option>' +
+    state.candidates.map(c =>
+      `<option value="${escHtml(c.id)}" style="color:#000">${escHtml(c.name)}</option>`
     ).join('');
-  updatePillActive();
+  sel.value = state.activeCandidateId || '';
 }
 
-// Sync dropdown selection to active profile
-function updatePillActive() {
-  const sel = document.getElementById('profileSelect');
-  if (sel) sel.value = state.activeProfile || '';
+// Called when a candidate is chosen from the dropdown
+async function loadByCandidate(cid) {
+  state.activeCandidateId = cid || null;
+  const sel = document.getElementById('candidateSelect');
+  if (sel) sel.value = cid || '';
+  if (cid) {
+    await loadCandidateMails(cid);
+  } else {
+    await loadProfile('');
+  }
 }
 
 // Bootstrap the app
 async function init() {
   try {
-    const data = await api('/api/profiles');
-    state.profiles = data.profiles || data || [];
-    renderProfilePills();
-    // Auto-load mails — use first profile if available, else load without profile
-    const firstProfile = state.profiles.length ? state.profiles[0].name : '';
-    await loadProfile(firstProfile);
+    const data = await api('/api/candidates?limit=200');
+    state.candidates = (data.candidates || []).map(c => ({ id: c.id, name: c.name || 'Unknown' }));
+    renderCandidateDropdown();
   } catch(e) {
-    // Profile fetch failed — still try to load mails without scoring
-    await loadProfile('');
+    // ignore — dropdown stays empty
   }
+  // Load all mails on startup with no candidate filter
+  await loadProfile('');
 }
 
 // Start when DOM is ready

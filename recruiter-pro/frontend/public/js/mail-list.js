@@ -7,11 +7,11 @@ const MAIL_BATCH = 50;  // how many mails to load per request
 // Load first batch for a profile (resets list)
 async function loadProfile(name) {
   state.activeProfile   = name || '';
+  state.activeCandidateId = null;
   state.mails           = [];
   state.mailSkip        = 0;
   state.mailTotal       = 0;
   state.mailLoadingMore = false;
-  updatePillActive();
 
   document.getElementById('mailList').innerHTML = '<div class="loading">Loading mails…</div>';
 
@@ -28,24 +28,67 @@ async function loadProfile(name) {
   }
 }
 
+// Load mails matched to a specific candidate (≥50%), resets list
+async function loadCandidateMails(cid) {
+  state.activeCandidateId = cid;
+  state.activeProfile     = '';
+  state.mails             = [];
+  state.mailSkip          = 0;
+  state.mailTotal         = 0;
+  state.mailLoadingMore   = false;
+
+  document.getElementById('mailList').innerHTML = '<div class="loading">Loading matched mails…</div>';
+
+  try {
+    const data = await api(`/api/candidates/${cid}/matched-mails?min_score=50&limit=${MAIL_BATCH}&skip=0`);
+    const mails = (data.mails || []).map(_normCandMail);
+    state.mails     = mails;
+    state.mailTotal = data.total || 0;
+    state.mailSkip  = mails.length;
+    applyFilter();
+  } catch(e) {
+    document.getElementById('mailList').innerHTML = `<div class="no-data">Error loading mails</div>`;
+  }
+}
+
+// Normalize candidate matched-mail record to the same shape as a regular mail
+function _normCandMail(m) {
+  return {
+    id:            m.mail_id,
+    subject:       m.subject,
+    from_email:    m.from_email,
+    received_at:   m.received_at,
+    job_title:     m.job_title,
+    work_type:     m.work_type,
+    locations:     m.location ? [m.location] : [],
+    top_candidates:[{ score: m.score }],   // reuse score chip rendering
+  };
+}
+
 // Fetch next batch and append to the list (called on scroll or "load more" click)
 async function loadMoreMails() {
-  if (state.mailLoadingMore)        return;  // already fetching
-  if (state.mailSkip >= state.mailTotal) return;  // nothing left
-  if (!state.activeProfile)         return;
+  if (state.mailLoadingMore)             return;
+  if (state.mailSkip >= state.mailTotal) return;
 
   state.mailLoadingMore = true;
   const sentinel = document.getElementById('mailLoadMore');
   if (sentinel) sentinel.textContent = 'Loading…';
 
   try {
-    let url = `/api/mails?limit=${MAIL_BATCH}&skip=${state.mailSkip}`;
-    if (state.activeProfile) url += `&profile=${encodeURIComponent(state.activeProfile)}`;
-    const data = await api(url);
-    const newMails = data.mails || [];
+    let newMails = [];
+    if (state.activeCandidateId) {
+      const data = await api(`/api/candidates/${state.activeCandidateId}/matched-mails?min_score=50&limit=${MAIL_BATCH}&skip=${state.mailSkip}`);
+      newMails = (data.mails || []).map(_normCandMail);
+      state.mailTotal = data.total || state.mailTotal;
+    } else {
+      let url = `/api/mails?limit=${MAIL_BATCH}&skip=${state.mailSkip}`;
+      if (state.activeProfile) url += `&profile=${encodeURIComponent(state.activeProfile)}`;
+      const data = await api(url);
+      newMails = data.mails || [];
+      state.mailTotal = data.total || state.mailTotal;
+    }
     state.mails    = state.mails.concat(newMails);
     state.mailSkip += newMails.length;
-    state.mailTotal = data.total || state.mailTotal;
     _appendMailItems(newMails);
   } catch(e) {
     // silently ignore fetch errors while scrolling

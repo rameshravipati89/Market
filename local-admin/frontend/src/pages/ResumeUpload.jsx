@@ -1,6 +1,79 @@
 import { useEffect, useRef, useState } from "react";
 import { authFetch, getToken } from "../api.js";
 
+// ── Rerun Scores button + status ─────────────────────────────────────────────
+function RerunScores() {
+  const [status, setStatus] = useState(null); // null | {running, mails, scored, done, error}
+  const pollRef = useRef(null);
+
+  async function fetchStatus() {
+    try {
+      const r = await authFetch(`${(import.meta.env.VITE_API_URL || "/api")}/resume/rerun-scores/status`);
+      if (r.ok) setStatus(await r.json());
+    } catch { /* ignore */ }
+  }
+
+  async function handleRerun() {
+    try {
+      const r = await authFetch(
+        `${(import.meta.env.VITE_API_URL || "/api")}/resume/rerun-scores`,
+        { method: "POST" }
+      );
+      const data = await r.json();
+      setStatus(data);
+      // poll every 2s until done
+      pollRef.current = setInterval(async () => {
+        const r2 = await authFetch(`${(import.meta.env.VITE_API_URL || "/api")}/resume/rerun-scores/status`);
+        if (r2.ok) {
+          const s = await r2.json();
+          setStatus(s);
+          if (!s.running) { clearInterval(pollRef.current); pollRef.current = null; }
+        }
+      }, 2000);
+    } catch (e) {
+      alert("Failed to start rerun: " + e.message);
+    }
+  }
+
+  useEffect(() => { fetchStatus(); return () => { if (pollRef.current) clearInterval(pollRef.current); }; }, []);
+
+  const running = status?.running;
+  const done    = status?.done && !running;
+  const btnText = running ? `⏳ Running… (${status.mails} mails)` : "🔄 Rerun Scores (Last 7 Days)";
+
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: 14, padding: "10px 16px",
+      background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 8, marginBottom: 20,
+    }}>
+      <button
+        onClick={handleRerun}
+        disabled={running}
+        style={{
+          padding: "8px 20px", background: running ? "#94a3b8" : "#0ea5e9",
+          color: "#fff", border: "none", borderRadius: 7, fontSize: 13,
+          fontWeight: 700, cursor: running ? "not-allowed" : "pointer", whiteSpace: "nowrap",
+        }}
+      >
+        {btnText}
+      </button>
+      {done && !status?.error && (
+        <span style={{ fontSize: 13, color: "#16a34a", fontWeight: 600 }}>
+          ✓ Done — {status.scored} matches written across {status.mails} mails
+        </span>
+      )}
+      {done && status?.error && (
+        <span style={{ fontSize: 13, color: "#dc2626" }}>✗ Error: {status.error}</span>
+      )}
+      {!status && (
+        <span style={{ fontSize: 12, color: "#64748b" }}>
+          Scores all candidates against mails from the last 7 days and saves to job_matches.
+        </span>
+      )}
+    </div>
+  );
+}
+
 const API = (import.meta.env.VITE_API_URL || "/api") + "/resume";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -510,6 +583,9 @@ export default function ResumeUpload() {
         <StatCard label="H1B"       value={h1b} />
         <StatCard label="Top Skill" value={stats?.top_skills?.[0]?.skill ?? "—"} />
       </div>
+
+      {/* Rerun Scores */}
+      <RerunScores />
 
       {/* Tabs */}
       <div style={{ display: "flex", gap: 0, marginBottom: 20, borderBottom: "2px solid #e5e7eb" }}>

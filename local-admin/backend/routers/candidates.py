@@ -4,15 +4,68 @@ Handles resume upload, parsing, CRUD, and stats.
 """
 
 import logging
-from datetime import datetime
+import re
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import pymongo
 from bson import ObjectId
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 
 from database import get_db
 from models import CandidateUpdate
+
+# ── Scoring helpers (inline copy from recruiter-pro matcher) ──────────────────
+
+_TECH_TOKENS = re.compile(
+    r"\b("
+    r"python|java|javascript|typescript|react|angular|vue|node\.?js|"
+    r"sql|nosql|mongodb|postgres|mysql|oracle|redis|elasticsearch|"
+    r"aws|azure|gcp|docker|kubernetes|k8s|terraform|ansible|jenkins|"
+    r"spark|hadoop|kafka|airflow|dbt|snowflake|databricks|"
+    r"workday|sap|salesforce|servicenow|"
+    r"machine.?learning|ml|ai|nlp|deep.?learning|"
+    r"rest|graphql|microservices|api|devops|ci.?cd|"
+    r"linux|bash|shell|git|agile|scrum|"
+    r"data.?engineer|data.?scientist|etl|pipeline|"
+    r"c\+\+|c#|\.net|go|rust|scala|kotlin|swift|"
+    r"selenium|playwright|junit|pytest|"
+    r"finance|erp|hrms|payroll|gl|ap|ar|"
+    r"power.?bi|tableau|looker|qlik"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _extract_kw(text: str) -> set:
+    if not text:
+        return set()
+    return {t.lower().replace(" ", "").replace(".", "") for t in _TECH_TOKENS.findall(text)}
+
+
+def _skill_names(raw) -> list:
+    if not raw:
+        return []
+    if isinstance(raw, str):
+        return [s.strip() for s in raw.split(",") if s.strip()]
+    out = []
+    for s in raw:
+        if isinstance(s, str) and s.strip():
+            out.append(s)
+        elif isinstance(s, dict) and s.get("name"):
+            out.append(str(s["name"]))
+    return out
+
+
+def _score(candidate: dict, job_kw: set) -> tuple:
+    if not job_kw:
+        return 0, []
+    cand_kw = _extract_kw(" ".join(_skill_names(candidate.get("skills", []))))
+    cand_kw |= _extract_kw(candidate.get("summary", ""))
+    matched = job_kw & cand_kw
+    gaps    = sorted(job_kw - cand_kw)
+    score   = min(100, round(len(matched) / len(job_kw) * 100))
+    return score, gaps
 from routers.auth import get_current_user
 from services import docx_extractor, resume_service
 
@@ -169,6 +222,82 @@ async def delete_candidate(candidate_id: str, db=Depends(get_db), _=Depends(get_
     if result.deleted_count == 0:
         raise HTTPException(404, "Candidate not found")
     return {"deleted": True}
+
+
+# ── Rerun Scores ──────────────────────────────────────────────────────────────
+
+_rerun_status: dict = {"running": False, "mails": 0, "scored": 0, "done": False, "error": None}
+
+
+async def _do_rerun(db):
+    global _rerun_status
+    try:
+        since = datetime.now(timezone.utc) - timedelta(days=7)
+        mails = await db.mail_events.find(
+            {"received_at": {"$gte": since}},
+            {"_id": 1, "subject": 1, "description": 1}
+        ).sort("received_at", -1).to_list(500)
+
+        candidates = await db.candidates.find(
+            {}, {"_id": 1, "name": 1, "skills": 1, "summary": 1,
+                 "visa_status": 1, "availability": 1}
+        ).to_list(None)
+
+        _rerun_status["mails"] = len(mails)
+        total_scored = 0
+
+        for mail in mails:
+            mail_id  = str(mail["_id"])
+            job_text = f"{mail.get('subject', '')} {mail.get('description', '')}"
+            job_kw   = _extract_kw(job_text)
+            if not job_kw:
+                continue
+
+            for cand in candidates:
+                score, gaps = _score(cand, job_kw)
+                if score == 0:
+                    continue
+                cand_kw = _extract_kw(" ".join(_skill_names(cand.get("skills", []))))
+                doc = {
+                    "mail_id":      mail_id,
+                    "profile":      "",
+                    "candidate_id": str(cand["_id"]),
+                    "name":         cand.get("name", "Unknown"),
+                    "visa_status":  cand.get("visa_status", ""),
+                    "availability": cand.get("availability", ""),
+                    "skills":       cand.get("skills", []),
+                    "score":        score,
+                    "skill_gaps":   gaps,
+                    "matched_kw":   sorted(job_kw & cand_kw),
+                    "updated_at":   datetime.now(timezone.utc),
+                }
+                await db.job_matches.update_one(
+                    {"mail_id": mail_id, "candidate_id": str(cand["_id"])},
+                    {"$set": doc},
+                    upsert=True,
+                )
+                total_scored += 1
+
+        _rerun_status.update({"running": False, "scored": total_scored, "done": True, "error": None})
+        log.info("[Rerun] Done — %d mails, %d matches written", len(mails), total_scored)
+    except Exception as exc:
+        log.error("[Rerun] Failed: %s", exc)
+        _rerun_status.update({"running": False, "done": True, "error": str(exc)})
+
+
+@router.post("/rerun-scores")
+async def rerun_scores(background_tasks: BackgroundTasks, db=Depends(get_db), _=Depends(get_current_user)):
+    global _rerun_status
+    if _rerun_status["running"]:
+        return {"status": "already_running", **_rerun_status}
+    _rerun_status = {"running": True, "mails": 0, "scored": 0, "done": False, "error": None}
+    background_tasks.add_task(_do_rerun, db)
+    return {"status": "started"}
+
+
+@router.get("/rerun-scores/status")
+async def rerun_scores_status(_=Depends(get_current_user)):
+    return _rerun_status
 
 
 # ── Stats ──────────────────────────────────────────────────────────────────────
